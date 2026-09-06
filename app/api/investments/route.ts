@@ -59,7 +59,19 @@ export async function GET() {
     const rows = await db.select().from(investments)
       .where(and(eq(investments.userId, owner.id), isNull(investments.deletedAt)))
       .orderBy(desc(investments.createdAt));
-    return Response.json({ investments: rows });
+    const schedules = await db.select().from(payoutSchedules)
+      .where(and(eq(payoutSchedules.userId, owner.id), isNull(payoutSchedules.deletedAt)))
+      .orderBy(payoutSchedules.dueDate);
+    const byInvestment = schedules.reduce<Record<string, typeof schedules>>((grouped, payout) => {
+      (grouped[payout.investmentId] ??= []).push(payout);
+      return grouped;
+    }, {});
+    return Response.json({
+      investments: rows.map((investment) => ({
+        ...investment,
+        schedule: byInvestment[investment.id] ?? [],
+      })),
+    });
   } catch {
     return Response.json({ error: "Investment data is temporarily unavailable" }, { status: 503 });
   }
