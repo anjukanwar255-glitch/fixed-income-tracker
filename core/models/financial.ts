@@ -54,10 +54,48 @@ export interface PayoutProjection {
   expectedTdsPaise: bigint;
   expectedNetPaise: bigint;
   status: PayoutStatus;
+  receivedAmountPaise?: bigint;
+  receivedDate?: string;
+  actualTdsPaise?: bigint;
+  paymentReference?: string;
+  payoutRemarks?: string;
+  followUpDate?: string;
+  tdsReflected?: boolean;
+  reflectedAmountPaise?: bigint;
+  tdsVerificationDate?: string;
+  tdsStatus?: TdsStatus;
+}
+
+export interface InvestmentDocument {
+  id: string;
+  documentName: string;
+  documentType: string;
+  financialYear?: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export interface InvestmentForm {
+  id: string;
+  formType: string;
+  financialYear: string;
+  status: string;
+  submissionDate?: string;
+}
+
+export interface InvestmentActivity {
+  id: string;
+  action: string;
+  summary: string;
+  createdAt: string;
 }
 
 export interface PortfolioInvestment extends InvestmentDraft {
   id: string;
   status: "active" | "matured" | "closed" | "draft";
   schedule: PayoutProjection[];
+  documents: InvestmentDocument[];
+  forms: InvestmentForm[];
+  activity: InvestmentActivity[];
 }

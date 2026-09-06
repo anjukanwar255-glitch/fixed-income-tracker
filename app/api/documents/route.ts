@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { headers } from "next/headers";
 
@@ -9,6 +9,37 @@ export const dynamic = "force-dynamic";
 
 const allowedTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const maxBytes = 10 * 1024 * 1024;
+
+export async function GET(request: Request) {
+  const ownerId = (await headers()).get("oai-authenticated-user-id");
+  if (!ownerId) return Response.json({ error: "Authentication required" }, { status: 401 });
+  const investmentId = new URL(request.url).searchParams.get("investmentId");
+  if (!investmentId) return Response.json({ error: "Investment is required" }, { status: 400 });
+
+  const db = getDb();
+  const [ownedInvestment] = await db.select({ id: investments.id }).from(investments).where(and(
+    eq(investments.id, investmentId),
+    eq(investments.userId, ownerId),
+    isNull(investments.deletedAt),
+  )).limit(1);
+  if (!ownedInvestment) return Response.json({ error: "Investment not found" }, { status: 404 });
+
+  const rows = await db.select({
+    id: documents.id,
+    documentName: documents.documentName,
+    documentType: documents.documentType,
+    financialYear: documents.financialYear,
+    mimeType: documents.mimeType,
+    sizeBytes: documents.sizeBytes,
+    createdAt: documents.createdAt,
+  }).from(documents).where(and(
+    eq(documents.investmentId, investmentId),
+    eq(documents.userId, ownerId),
+    isNull(documents.deletedAt),
+  )).orderBy(desc(documents.createdAt));
+
+  return Response.json({ documents: rows });
+}
 
 export async function POST(request: Request) {
   const ownerId = (await headers()).get("oai-authenticated-user-id");

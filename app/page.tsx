@@ -5,5 +5,5 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const user = await getChatGPTUser();
-  return <FixedIncomeApp authenticated={Boolean(user)} displayName={user?.displayName ?? "Mahendra"} />;
+  return <FixedIncomeApp authenticated={Boolean(user)} displayName={user?.displayName ?? "Investor"} email={user?.email ?? ""} />;
 }

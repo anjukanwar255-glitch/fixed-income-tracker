@@ -1,16 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   CalendarDays,
-  Check,
   CheckCircle2,
   Clock3,
   Download,
   FileText,
+  History,
   Landmark,
-  ReceiptIndianRupee,
   ShieldCheck,
   Upload,
 } from "lucide-react";
@@ -21,48 +21,151 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { calculateInterest, formatMoney } from "@/core/finance/calculations";
-import type { PortfolioInvestment } from "@/core/models/financial";
+import { Textarea } from "@/components/ui/textarea";
+import { calculateFinancialYear, calculateInterest, formatMoney, parseRupeesToPaise } from "@/core/finance/calculations";
+import type { PayoutProjection, PortfolioInvestment } from "@/core/models/financial";
 
 type Props = {
   investment: PortfolioInvestment;
   onBack: () => void;
+  onDataChanged: () => Promise<boolean>;
 };
 
-export function InvestmentDetailScreen({ investment, onBack }: Props) {
-  const [confirmingPayout, setConfirmingPayout] = useState<string | null>(null);
+type PayoutDialog = { payout: PayoutProjection; outcome: "received" | "not-received" } | null;
+
+export function InvestmentDetailScreen({ investment, onBack, onDataChanged }: Props) {
+  const [payoutDialog, setPayoutDialog] = useState<PayoutDialog>(null);
   const [receivedAmount, setReceivedAmount] = useState("");
-  const [confirmed, setConfirmed] = useState<Set<string>>(new Set(investment.schedule.slice(0, 1).map((item) => item.id)));
+  const [receivedDate, setReceivedDate] = useState(todayIso());
+  const [actualTds, setActualTds] = useState("");
+  const [accountLast4, setAccountLast4] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [followUpDate, setFollowUpDate] = useState("");
+  const [payoutRemarks, setPayoutRemarks] = useState("");
+  const [savingPayout, setSavingPayout] = useState(false);
+  const [tdsDialog, setTdsDialog] = useState<PayoutProjection | null>(null);
+  const [tdsReflected, setTdsReflected] = useState(true);
+  const [reflectedAmount, setReflectedAmount] = useState("");
+  const [verificationDate, setVerificationDate] = useState(todayIso());
+  const [tdsRemarks, setTdsRemarks] = useState("");
+  const [savingTds, setSavingTds] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const uploadRef = useRef<HTMLInputElement>(null);
+
   const annualInterest = calculateInterest(investment.principalPaise, investment.annualRateBps);
-  const received = investment.schedule
-    .filter((item) => confirmed.has(item.id))
-    .reduce((sum, item) => sum + item.expectedNetPaise, 0n);
-  const activePayout = investment.schedule.find((item) => item.id === confirmingPayout);
-
-  const saveConfirmation = () => {
-    if (!activePayout) return;
-    const amount = receivedAmount.replace(/,/g, "");
-    if (!/^\d+(\.\d{0,2})?$/.test(amount)) {
-      toast.error("Enter the amount credited to your bank");
-      return;
-    }
-    setConfirmed((current) => new Set(current).add(activePayout.id));
-    setConfirmingPayout(null);
-    setReceivedAmount("");
-    toast.success("Payout confirmed. An activity entry was added.");
-  };
-
+  const receivedSchedules = investment.schedule.filter((item) => item.status === "received" || item.status === "partial-received");
+  const grossReceived = receivedSchedules.reduce((sum, item) => sum + (item.receivedAmountPaise ?? 0n) + (item.actualTdsPaise ?? 0n), 0n);
+  const netReceived = receivedSchedules.reduce((sum, item) => sum + (item.receivedAmountPaise ?? 0n), 0n);
+  const actualTdsTotal = receivedSchedules.reduce((sum, item) => sum + (item.actualTdsPaise ?? 0n), 0n);
+  const expectedTdsTotal = investment.schedule.reduce((sum, item) => sum + item.expectedTdsPaise, 0n);
+  const reflectedTdsTotal = investment.schedule.reduce((sum, item) => sum + (item.reflectedAmountPaise ?? 0n), 0n);
+  const nextPayout = investment.schedule.find((item) => !["received", "partial-received"].includes(item.status));
   const summary = [
     ["Principal", formatMoney(investment.principalPaise)],
     ["Annual interest", formatMoney(annualInterest)],
-    ["Interest received", formatMoney(received)],
-    ["Pending interest", formatMoney(annualInterest > received ? annualInterest - received : 0n)],
-    ["TDS deducted", formatMoney(received / 9n)],
-    ["Net interest", formatMoney(received)],
-    ["Next payout", investment.schedule.find((item) => !confirmed.has(item.id)) ? formatDate(investment.schedule.find((item) => !confirmed.has(item.id))!.dueDate) : "—"],
+    ["Interest received", formatMoney(grossReceived)],
+    ["Pending interest", formatMoney(annualInterest > grossReceived ? annualInterest - grossReceived : 0n)],
+    ["TDS deducted", formatMoney(actualTdsTotal)],
+    ["Net interest", formatMoney(netReceived)],
+    ["Next payout", nextPayout ? formatDate(nextPayout.dueDate) : "—"],
     ["Maturity amount", formatMoney(investment.expectedMaturityPaise ?? investment.principalPaise)],
   ];
+
+  const openPayout = (payout: PayoutProjection, outcome: "received" | "not-received") => {
+    setPayoutDialog({ payout, outcome });
+    setReceivedAmount(outcome === "received" ? paiseToInput(payout.expectedNetPaise) : "");
+    setActualTds(outcome === "received" ? paiseToInput(payout.expectedTdsPaise) : "");
+    setReceivedDate(todayIso()); setAccountLast4(""); setPaymentReference(""); setFollowUpDate(""); setPayoutRemarks("");
+  };
+
+  const savePayout = async () => {
+    if (!payoutDialog) return;
+    if (payoutDialog.outcome === "received" && parseRupeesToPaise(receivedAmount) < 0n) return;
+    if (accountLast4 && !/^\d{4}$/.test(accountLast4)) {
+      toast.error("Enter only the last 4 account digits"); return;
+    }
+    setSavingPayout(true);
+    try {
+      const response = await fetch("/api/payouts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          scheduleId: payoutDialog.payout.id,
+          outcome: payoutDialog.outcome,
+          receivedAmountPaise: payoutDialog.outcome === "received" ? Number(parseRupeesToPaise(receivedAmount)) : undefined,
+          receivedDate: payoutDialog.outcome === "received" ? receivedDate : undefined,
+          actualTdsPaise: payoutDialog.outcome === "received" ? Number(parseRupeesToPaise(actualTds)) : undefined,
+          bankAccountLast4: accountLast4,
+          paymentReference,
+          followUpDate: payoutDialog.outcome === "not-received" && followUpDate ? followUpDate : undefined,
+          remarks: payoutRemarks,
+        }),
+      });
+      const result = await response.json() as { error?: string; status?: string };
+      if (!response.ok) throw new Error(result.error ?? "Payout could not be saved");
+      await onDataChanged();
+      setPayoutDialog(null);
+      toast.success(payoutDialog.outcome === "received" ? "Payout confirmation saved" : "Payout marked not received");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Payout could not be saved");
+    } finally {
+      setSavingPayout(false);
+    }
+  };
+
+  const openTdsVerification = (payout: PayoutProjection) => {
+    setTdsDialog(payout); setTdsReflected(true);
+    setReflectedAmount(paiseToInput(payout.actualTdsPaise ?? payout.expectedTdsPaise));
+    setVerificationDate(todayIso()); setTdsRemarks("");
+  };
+
+  const saveTdsVerification = async () => {
+    if (!tdsDialog) return;
+    setSavingTds(true);
+    try {
+      const response = await fetch("/api/tds", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          scheduleId: tdsDialog.id,
+          reflected: tdsReflected,
+          reflectedAmountPaise: Number(parseRupeesToPaise(tdsReflected ? reflectedAmount : "0")),
+          verificationDate,
+          remarks: tdsRemarks,
+        }),
+      });
+      const result = await response.json() as { error?: string; status?: string };
+      if (!response.ok) throw new Error(result.error ?? "TDS verification could not be saved");
+      await onDataChanged(); setTdsDialog(null);
+      toast.success(result.status === "matched" ? "TDS credit matched" : "TDS verification saved with a mismatch");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "TDS verification could not be saved");
+    } finally {
+      setSavingTds(false);
+    }
+  };
+
+  const uploadDocument = async (file?: File) => {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error("Document must be 10 MB or smaller"); return; }
+    setUploading(true);
+    try {
+      const body = new FormData();
+      body.set("file", file); body.set("investmentId", investment.id);
+      body.set("documentType", "investment-document");
+      body.set("financialYear", calculateFinancialYear(investment.investmentDate));
+      const response = await fetch("/api/documents", { method: "POST", body });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Document could not be uploaded");
+      await onDataChanged(); toast.success("Document uploaded securely");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Document could not be uploaded");
+    } finally {
+      setUploading(false); if (uploadRef.current) uploadRef.current.value = "";
+    }
+  };
 
   return (
     <div className="screen detail-screen">
@@ -70,11 +173,10 @@ export function InvestmentDetailScreen({ investment, onBack }: Props) {
       <section className="detail-hero">
         <div className="detail-icon"><Landmark aria-hidden="true" /></div>
         <div className="detail-title">
-          <span>{labelType(investment.type)}</span>
-          <h1>{investment.issuer}</h1>
-          <p>{investment.name} · •••• {investment.investmentNumber.slice(-4)}</p>
+          <span>{labelType(investment.type)}</span><h1>{investment.issuer}</h1>
+          <p>{investment.name}{investment.investmentNumber ? ` · •••• ${investment.investmentNumber.slice(-4)}` : ""}</p>
         </div>
-        <Badge className="status-active">Active</Badge>
+        <Badge className={investment.status === "active" ? "status-active" : "status-upcoming"}>{labelType(investment.status)}</Badge>
         <div className="detail-key-numbers">
           <div><span>Investment</span><strong>{formatMoney(investment.principalPaise)}</strong></div>
           <div><span>Interest rate</span><strong>{(investment.annualRateBps / 100).toFixed(2)}% <small>p.a.</small></strong></div>
@@ -84,115 +186,124 @@ export function InvestmentDetailScreen({ investment, onBack }: Props) {
 
       <Tabs defaultValue="overview" className="detail-tabs">
         <TabsList variant="line" className="detail-tab-list scrollbar-none">
-          {[
-            ["overview", "Overview"], ["payouts", "Payouts"], ["tds", "TDS"],
-            ["documents", "Documents"], ["forms", "Forms"], ["activity", "Activity"],
-          ].map(([value, label]) => <TabsTrigger value={value} key={value}>{label}</TabsTrigger>)}
+          {[["overview", "Overview"], ["payouts", "Payouts"], ["tds", "TDS"], ["documents", "Documents"], ["forms", "Forms"], ["activity", "Activity"]].map(([value, label]) => <TabsTrigger value={value} key={value}>{label}</TabsTrigger>)}
         </TabsList>
 
         <TabsContent value="overview" className="detail-tab-content">
-          <div className="detail-summary-grid">
-            {summary.map(([label, value]) => <div className="detail-summary-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}
-          </div>
-          <section className="calculation-note">
-            <ShieldCheck aria-hidden="true" />
-            <div><b>How the next payout is calculated</b><p>{formatMoney(investment.principalPaise)} × {(investment.annualRateBps / 100).toFixed(2)}% × 3/12 = {formatMoney(calculateInterest(investment.principalPaise, investment.annualRateBps, 3))} gross. TDS remains expected until actual deduction is entered.</p></div>
-          </section>
-          <PayoutList investment={investment} confirmed={confirmed} onConfirm={setConfirmingPayout} limit={3} />
+          <div className="detail-summary-grid">{summary.map(([label, value]) => <div className="detail-summary-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+          <section className="calculation-note"><ShieldCheck aria-hidden="true" /><div><b>Calculation basis</b><p>{formatMoney(investment.principalPaise)} × {(investment.annualRateBps / 100).toFixed(2)}% p.a. Expected values remain separate from bank-confirmed and PAN-verified values.</p></div></section>
+          <PayoutList investment={investment} onConfirm={openPayout} limit={3} />
         </TabsContent>
 
         <TabsContent value="payouts" className="detail-tab-content">
-          <SectionTitle title="Interest payout schedule" description={`${investment.schedule.length} generated payouts · user editable`} />
-          <PayoutList investment={investment} confirmed={confirmed} onConfirm={setConfirmingPayout} />
+          <SectionTitle title="Interest payout schedule" description={`${investment.schedule.length} expected payout${investment.schedule.length === 1 ? "" : "s"}`} />
+          <PayoutList investment={investment} onConfirm={openPayout} />
         </TabsContent>
 
         <TabsContent value="tds" className="detail-tab-content">
-          <SectionTitle title="TDS reconciliation" description="Expected, deducted and PAN-reflected values are tracked separately" />
+          <SectionTitle title="TDS reconciliation" description="Expected, deducted and PAN-reflected values remain separate" />
           <div className="tds-reconciliation-card">
-            <div><span>Expected TDS</span><strong>₹9,000</strong></div>
-            <div><span>Actual deducted</span><strong>₹9,000</strong></div>
-            <div><span>PAN reflected</span><strong>₹8,000</strong></div>
-            <div className="tds-difference"><span>Difference</span><strong>₹1,000</strong><Badge variant="destructive">Mismatch</Badge></div>
+            <div><span>Expected TDS</span><strong>{formatMoney(expectedTdsTotal)}</strong></div>
+            <div><span>Actual deducted</span><strong>{formatMoney(actualTdsTotal)}</strong></div>
+            <div><span>PAN reflected</span><strong>{formatMoney(reflectedTdsTotal)}</strong></div>
+            <div className="tds-difference"><span>Pending / difference</span><strong>{formatMoney(absolute(actualTdsTotal - reflectedTdsTotal))}</strong></div>
           </div>
-          <Button variant="outline"><CheckCircle2 /> Mark TDS as verified</Button>
+          <div className="simple-list">
+            {receivedSchedules.map((payout) => (
+              <div className="simple-row tds-row" key={payout.id}>
+                <span className="row-icon"><ShieldCheck /></span>
+                <span className="row-copy"><b>{formatDate(payout.dueDate)}</b><small>Deducted {payout.actualTdsPaise === undefined ? "not entered" : formatMoney(payout.actualTdsPaise)}</small></span>
+                <span className="row-value"><small>PAN reflected</small><b>{payout.reflectedAmountPaise === undefined ? "Not verified" : formatMoney(payout.reflectedAmountPaise)}</b></span>
+                <Button size="sm" variant="outline" onClick={() => openTdsVerification(payout)}>{payout.tdsVerificationDate ? "Update verification" : "Verify TDS"}</Button>
+              </div>
+            ))}
+            {!receivedSchedules.length && <InlineEmpty icon={ShieldCheck} title="No TDS confirmations yet" detail="Confirm a received payout before verifying its PAN credit." />}
+          </div>
         </TabsContent>
 
         <TabsContent value="documents" className="detail-tab-content">
           <SectionTitle title="Documents" description="Private files linked to this investment" />
-          <div className="document-row"><span><FileText /><b>Bond certificate.pdf</b><small>Investment certificate · 1.2 MB</small></span><Button variant="ghost" size="icon" aria-label="Download document"><Download /></Button></div>
-          <Button variant="outline"><Upload /> Upload document</Button>
+          <div className="simple-list">
+            {investment.documents.map((document) => (
+              <div className="document-row" key={document.id}><span><FileText /><b>{document.documentName}</b><small>{labelType(document.documentType)} · {formatBytes(document.sizeBytes)}</small></span><Button asChild variant="ghost" size="icon"><a href={`/api/documents/download/${document.id}`} aria-label={`Download ${document.documentName}`}><Download /></a></Button></div>
+            ))}
+            {!investment.documents.length && <InlineEmpty icon={FileText} title="No documents uploaded" detail="Add a PDF, JPG or PNG up to 10 MB." />}
+          </div>
+          <input ref={uploadRef} className="sr-only" type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => void uploadDocument(event.target.files?.[0])} />
+          <Button variant="outline" disabled={uploading} onClick={() => uploadRef.current?.click()}><Upload /> {uploading ? "Uploading…" : "Upload document"}</Button>
         </TabsContent>
 
         <TabsContent value="forms" className="detail-tab-content">
-          <SectionTitle title="Forms & declarations" description="Configurable by financial year" />
-          <div className="form-status-row"><span><FileText /><b>Form 15G</b><small>FY 2026-27</small></span><Badge className="status-pending">Pending</Badge></div>
-          <div className="form-status-row"><span><FileText /><b>Issuer declaration</b><small>FY 2026-27</small></span><Badge className="status-received">Accepted</Badge></div>
+          <SectionTitle title="Forms & declarations" description="Financial-year records linked to this investment" />
+          {investment.forms.map((form) => <div className="form-status-row" key={form.id}><span><FileText /><b>{form.formType}</b><small>{form.financialYear}</small></span><Badge className={form.status === "accepted" ? "status-received" : "status-pending"}>{labelType(form.status)}</Badge></div>)}
+          {!investment.forms.length && <InlineEmpty icon={FileText} title="No forms recorded" detail="There is no declaration record for this investment yet." />}
         </TabsContent>
 
         <TabsContent value="activity" className="detail-tab-content">
-          <SectionTitle title="Activity history" description="Historical events are never silently overwritten" />
+          <SectionTitle title="Activity history" description="Saved events are append-only and never silently replaced" />
           <div className="activity-list">
-            <Activity date="05 Jul 2026" title="TDS ₹2,250 verified" icon={ShieldCheck} />
-            <Activity date="30 Jun 2026" title="User confirmed ₹20,250 received" icon={Check} />
-            <Activity date="01 Apr 2026" title="Investment created" icon={Landmark} />
+            {investment.activity.map((activity) => <Activity key={activity.id} date={formatDateTime(activity.createdAt)} title={activity.summary} />)}
+            {!investment.activity.length && <InlineEmpty icon={History} title="No activity recorded" detail="Saved changes will appear here." />}
           </div>
         </TabsContent>
       </Tabs>
 
-      <Dialog open={Boolean(confirmingPayout)} onOpenChange={(open) => !open && setConfirmingPayout(null)}>
+      <Dialog open={Boolean(payoutDialog)} onOpenChange={(open) => !open && setPayoutDialog(null)}>
         <DialogContent className="confirm-dialog">
-          <DialogHeader>
-            <DialogTitle>Confirm payout received</DialogTitle>
-            <DialogDescription>Record the amount actually credited. This does not verify PAN credit.</DialogDescription>
-          </DialogHeader>
-          <div className="confirmation-expected">
-            <span>Expected net amount</span>
-            <strong>{activePayout ? formatMoney(activePayout.expectedNetPaise) : "—"}</strong>
-          </div>
-          <div className="form-field"><Label htmlFor="received-amount">Amount received</Label><Input id="received-amount" inputMode="decimal" value={receivedAmount} onChange={(event) => setReceivedAmount(event.target.value)} placeholder="20,250" /></div>
-          <div className="form-field"><Label htmlFor="received-date">Received date</Label><Input id="received-date" type="date" defaultValue="2026-09-30" /></div>
-          <div className="form-field"><Label htmlFor="transaction-ref">Transaction reference (optional)</Label><Input id="transaction-ref" placeholder="Bank UTR / reference" /></div>
-          <DialogFooter><Button variant="outline" onClick={() => setConfirmingPayout(null)}>Cancel</Button><Button onClick={saveConfirmation}>Confirm received</Button></DialogFooter>
+          <DialogHeader><DialogTitle>{payoutDialog?.outcome === "received" ? "Confirm payout received" : "Mark payout not received"}</DialogTitle><DialogDescription>{payoutDialog?.outcome === "received" ? "Record the amount actually credited. This does not verify PAN credit." : "Keep this payout visible for follow-up with the issuer."}</DialogDescription></DialogHeader>
+          <div className="confirmation-expected"><span>Expected net amount</span><strong>{payoutDialog ? formatMoney(payoutDialog.payout.expectedNetPaise) : "—"}</strong></div>
+          {payoutDialog?.outcome === "received" ? <>
+            <FormField label="Amount received" id="received-amount"><Input id="received-amount" inputMode="decimal" value={receivedAmount} onChange={(event) => setReceivedAmount(event.target.value)} /></FormField>
+            <FormField label="Received date" id="received-date"><Input id="received-date" type="date" value={receivedDate} onChange={(event) => setReceivedDate(event.target.value)} /></FormField>
+            <FormField label="Actual TDS deducted" id="actual-tds"><Input id="actual-tds" inputMode="decimal" value={actualTds} onChange={(event) => setActualTds(event.target.value)} /></FormField>
+            <FormField label="Bank account last 4 digits" id="bank-last4"><Input id="bank-last4" inputMode="numeric" maxLength={4} value={accountLast4} onChange={(event) => setAccountLast4(event.target.value.replace(/\D/g, ""))} /></FormField>
+            <FormField label="Transaction reference (optional)" id="transaction-ref"><Input id="transaction-ref" value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} /></FormField>
+          </> : <FormField label="Follow-up date (optional)" id="follow-up-date"><Input id="follow-up-date" type="date" value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} /></FormField>}
+          <FormField label="Remarks (optional)" id="payout-remarks"><Textarea id="payout-remarks" value={payoutRemarks} onChange={(event) => setPayoutRemarks(event.target.value)} /></FormField>
+          {payoutDialog?.outcome === "received" && parseRupeesToPaise(receivedAmount) !== payoutDialog.payout.expectedNetPaise && <div className="mismatch-note"><AlertTriangle /> Expected {formatMoney(payoutDialog.payout.expectedNetPaise)}; entered {formatMoney(parseRupeesToPaise(receivedAmount))}.</div>}
+          <DialogFooter><Button variant="outline" onClick={() => setPayoutDialog(null)}>Cancel</Button><Button disabled={savingPayout} onClick={() => void savePayout()}>{savingPayout ? "Saving…" : "Save confirmation"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(tdsDialog)} onOpenChange={(open) => !open && setTdsDialog(null)}>
+        <DialogContent className="confirm-dialog">
+          <DialogHeader><DialogTitle>Verify TDS credit</DialogTitle><DialogDescription>Enter only what you confirmed in your tax/PAN record.</DialogDescription></DialogHeader>
+          <div className="toggle-row"><span><b>TDS reflected against PAN</b><small>Turn off if no credit is visible</small></span><Switch checked={tdsReflected} onCheckedChange={setTdsReflected} /></div>
+          {tdsReflected && <FormField label="Amount reflected" id="reflected-amount"><Input id="reflected-amount" inputMode="decimal" value={reflectedAmount} onChange={(event) => setReflectedAmount(event.target.value)} /></FormField>}
+          <FormField label="Verification date" id="verification-date"><Input id="verification-date" type="date" value={verificationDate} onChange={(event) => setVerificationDate(event.target.value)} /></FormField>
+          <FormField label="Reference / remarks (optional)" id="tds-remarks"><Textarea id="tds-remarks" value={tdsRemarks} onChange={(event) => setTdsRemarks(event.target.value)} /></FormField>
+          <DialogFooter><Button variant="outline" onClick={() => setTdsDialog(null)}>Cancel</Button><Button disabled={savingTds} onClick={() => void saveTdsVerification()}>{savingTds ? "Saving…" : "Save verification"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function PayoutList({ investment, confirmed, onConfirm, limit }: { investment: PortfolioInvestment; confirmed: Set<string>; onConfirm: (id: string) => void; limit?: number }) {
+function PayoutList({ investment, onConfirm, limit }: { investment: PortfolioInvestment; onConfirm: (payout: PayoutProjection, outcome: "received" | "not-received") => void; limit?: number }) {
   const rows = useMemo(() => investment.schedule.slice(0, limit), [investment.schedule, limit]);
-  return (
-    <div className="detail-payout-list">
-      {rows.map((payout) => {
-        const isReceived = confirmed.has(payout.id);
-        const isPast = payout.dueDate < "2026-09-06";
-        return (
-          <div className="detail-payout-row" key={payout.id}>
-            <span className={`payout-date-icon ${isReceived ? "received" : ""}`}><CalendarDays aria-hidden="true" /></span>
-            <span className="detail-payout-date"><b>{formatDate(payout.dueDate)}</b><small>{payout.financialYear}</small></span>
-            <span><small>Gross</small><b>{formatMoney(payout.grossInterestPaise)}</b></span>
-            <span><small>Expected TDS</small><b>{formatMoney(payout.expectedTdsPaise)}</b></span>
-            <span><small>Expected net</small><b>{formatMoney(payout.expectedNetPaise)}</b></span>
-            {isReceived ? <Badge className="status-received"><CheckCircle2 /> Received</Badge> : isPast ? <Button size="sm" onClick={() => onConfirm(payout.id)}>Confirm payout</Button> : <Badge className="status-upcoming"><Clock3 /> Upcoming</Badge>}
-          </div>
-        );
-      })}
-    </div>
-  );
+  if (!rows.length) return <InlineEmpty icon={CalendarDays} title="No payout schedule" detail="Add a custom schedule when the issuer provides its dates." />;
+  return <div className="detail-payout-list">{rows.map((payout) => {
+    const settled = payout.status === "received" || payout.status === "partial-received";
+    const actionable = payout.status !== "upcoming";
+    return <div className="detail-payout-row" key={payout.id}>
+      <span className={`payout-date-icon ${settled ? "received" : ""}`}><CalendarDays aria-hidden="true" /></span>
+      <span className="detail-payout-date"><b>{formatDate(payout.dueDate)}</b><small>{payout.financialYear}</small></span>
+      <span><small>Gross</small><b>{formatMoney(payout.grossInterestPaise)}</b></span>
+      <span><small>Expected TDS</small><b>{formatMoney(payout.expectedTdsPaise)}</b></span>
+      <span><small>{settled ? "Received" : "Expected net"}</small><b>{formatMoney(payout.receivedAmountPaise ?? payout.expectedNetPaise)}</b></span>
+      {settled ? <Badge className="status-received"><CheckCircle2 /> {labelType(payout.status)}</Badge> : payout.status === "not-received" ? <Button size="sm" onClick={() => onConfirm(payout, "received")}>Update receipt</Button> : actionable ? <span className="payout-actions"><Button size="sm" onClick={() => onConfirm(payout, "received")}>Received</Button><Button size="sm" variant="outline" onClick={() => onConfirm(payout, "not-received")}>Not received</Button></span> : <Badge className="status-upcoming"><Clock3 /> Upcoming</Badge>}
+    </div>;
+  })}</div>;
 }
 
-function SectionTitle({ title, description }: { title: string; description: string }) {
-  return <div className="section-heading"><div><h2>{title}</h2><p>{description}</p></div></div>;
-}
-
-function Activity({ date, title, icon: Icon }: { date: string; title: string; icon: typeof ShieldCheck }) {
-  return <div className="activity-row"><span className="activity-icon"><Icon aria-hidden="true" /></span><span><b>{title}</b><small>{date}</small></span></div>;
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
-}
-
-function labelType(value: string) {
-  return value.split("-").map((word) => word === "ncd" ? "NCD" : word[0].toUpperCase() + word.slice(1)).join(" ");
-}
+function FormField({ label, id, children }: { label: string; id: string; children: React.ReactNode }) { return <div className="form-field"><Label htmlFor={id}>{label}</Label>{children}</div>; }
+function SectionTitle({ title, description }: { title: string; description: string }) { return <div className="section-heading"><div><h2>{title}</h2><p>{description}</p></div></div>; }
+function InlineEmpty({ icon: Icon, title, detail }: { icon: typeof FileText; title: string; detail: string }) { return <div className="inline-empty"><Icon /><span><b>{title}</b><small>{detail}</small></span></div>; }
+function Activity({ date, title }: { date: string; title: string }) { return <div className="activity-row"><span className="activity-icon"><History aria-hidden="true" /></span><span><b>{title}</b><small>{date}</small></span></div>; }
+function todayIso() { return new Date().toISOString().slice(0, 10); }
+function paiseToInput(value: bigint) { const rupees = value / 100n; const paise = value % 100n; return paise ? `${rupees}.${paise.toString().padStart(2, "0")}` : rupees.toString(); }
+function absolute(value: bigint) { return value < 0n ? -value : value; }
+function formatDate(value: string) { return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`)); }
+function formatDateTime(value: string) { return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
+function formatBytes(value: number) { return value < 1024 * 1024 ? `${Math.max(1, Math.round(value / 1024))} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
+function labelType(value: string) { return value.split("-").map((word) => word.toLowerCase() === "ncd" ? "NCD" : word.slice(0, 1).toUpperCase() + word.slice(1)).join(" "); }

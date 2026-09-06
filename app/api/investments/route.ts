@@ -5,7 +5,16 @@ import { z } from "zod";
 import { calculateFinancialYear, generatePayoutSchedule } from "@/core/finance/calculations";
 import type { InvestmentDraft } from "@/core/models/financial";
 import { getDb } from "@/db";
-import { activityLogs, investments, payoutSchedules, users } from "@/db/schema";
+import {
+  activityLogs,
+  documents,
+  formRecords,
+  investments,
+  payoutSchedules,
+  payoutTransactions,
+  tdsRecords,
+  users,
+} from "@/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +71,30 @@ export async function GET() {
     const schedules = await db.select().from(payoutSchedules)
       .where(and(eq(payoutSchedules.userId, owner.id), isNull(payoutSchedules.deletedAt)))
       .orderBy(payoutSchedules.dueDate);
+    const transactions = await db.select().from(payoutTransactions)
+      .where(and(eq(payoutTransactions.userId, owner.id), isNull(payoutTransactions.deletedAt)))
+      .orderBy(desc(payoutTransactions.createdAt));
+    const tds = await db.select().from(tdsRecords)
+      .where(and(eq(tdsRecords.userId, owner.id), isNull(tdsRecords.deletedAt)))
+      .orderBy(desc(tdsRecords.createdAt));
+    const documentRows = await db.select().from(documents)
+      .where(and(eq(documents.userId, owner.id), isNull(documents.deletedAt)))
+      .orderBy(desc(documents.createdAt));
+    const forms = await db.select().from(formRecords)
+      .where(and(eq(formRecords.userId, owner.id), isNull(formRecords.deletedAt)))
+      .orderBy(desc(formRecords.createdAt));
+    const activities = await db.select().from(activityLogs)
+      .where(eq(activityLogs.userId, owner.id))
+      .orderBy(desc(activityLogs.createdAt));
+
+    const latestTransaction = new Map<string, (typeof transactions)[number]>();
+    for (const transaction of transactions) {
+      if (!latestTransaction.has(transaction.payoutScheduleId)) latestTransaction.set(transaction.payoutScheduleId, transaction);
+    }
+    const latestTds = new Map<string, (typeof tds)[number]>();
+    for (const record of tds) {
+      if (record.payoutScheduleId && !latestTds.has(record.payoutScheduleId)) latestTds.set(record.payoutScheduleId, record);
+    }
     const byInvestment = schedules.reduce<Record<string, typeof schedules>>((grouped, payout) => {
       (grouped[payout.investmentId] ??= []).push(payout);
       return grouped;
@@ -69,7 +102,26 @@ export async function GET() {
     return Response.json({
       investments: rows.map((investment) => ({
         ...investment,
-        schedule: byInvestment[investment.id] ?? [],
+        schedule: (byInvestment[investment.id] ?? []).map((payout) => {
+          const transaction = latestTransaction.get(payout.id);
+          const tdsRecord = latestTds.get(payout.id);
+          return {
+            ...payout,
+            receivedAmountPaise: transaction?.receivedAmountPaise ?? null,
+            receivedDate: transaction?.receivedDate ?? null,
+            actualTdsPaise: transaction?.actualTdsPaise ?? tdsRecord?.actualTdsPaise ?? null,
+            paymentReference: transaction?.paymentReference ?? null,
+            payoutRemarks: transaction?.remarks ?? null,
+            followUpDate: transaction?.followUpDate ?? null,
+            tdsReflected: tdsRecord?.tdsReflected ?? null,
+            reflectedAmountPaise: tdsRecord?.reflectedAmountPaise ?? null,
+            tdsVerificationDate: tdsRecord?.verificationDate ?? null,
+            tdsStatus: tdsRecord?.status ?? "not-verified",
+          };
+        }),
+        documents: documentRows.filter((document) => document.investmentId === investment.id),
+        forms: forms.filter((form) => form.investmentId === investment.id),
+        activity: activities.filter((activity) => activity.investmentId === investment.id),
       })),
     });
   } catch {

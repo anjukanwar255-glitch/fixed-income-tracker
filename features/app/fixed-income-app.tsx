@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Bell, CalendarClock, CirclePlus, Home, Landmark, Menu, ReceiptIndianRupee, UserRound, WalletCards } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { CalendarClock, CirclePlus, Home, Landmark, Menu, ReceiptIndianRupee, UserRound, WalletCards } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { calculateFinancialYear } from "@/core/finance/calculations";
 import type { PortfolioInvestment } from "@/core/models/financial";
-import { demoInvestments } from "@/data/demo";
 import { AuthFlow } from "@/features/auth/auth-flow";
 import { DashboardScreen } from "@/features/dashboard/dashboard-screen";
 import { AddInvestmentSheet } from "@/features/investments/add-investment-sheet";
@@ -24,12 +24,13 @@ const navItems: { value: Screen; label: string; icon: typeof Home }[] = [
   { value: "profile", label: "Profile", icon: UserRound },
 ];
 
-export function FixedIncomeApp({ authenticated, displayName }: { authenticated: boolean; displayName: string }) {
+export function FixedIncomeApp({ authenticated, displayName, email }: { authenticated: boolean; displayName: string; email: string }) {
   const [splash, setSplash] = useState(true);
   const [screen, setScreen] = useState<Screen>("home");
-  const [financialYear, setFinancialYear] = useState("FY 2026-27");
-  const [investments, setInvestments] = useState<PortfolioInvestment[]>(demoInvestments);
-  const [samplePortfolio, setSamplePortfolio] = useState(true);
+  const [financialYear, setFinancialYear] = useState(() => calculateFinancialYear(new Date().toISOString().slice(0, 10)));
+  const [investments, setInvestments] = useState<PortfolioInvestment[]>([]);
+  const [loading, setLoading] = useState(authenticated);
+  const [loadError, setLoadError] = useState(false);
   const [selectedInvestmentId, setSelectedInvestmentId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -38,19 +39,26 @@ export function FixedIncomeApp({ authenticated, displayName }: { authenticated: 
     return () => window.clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    if (!authenticated) return;
+  const loadPortfolio = useCallback(async () => {
+    if (!authenticated) return false;
+    setLoading(true);
+    setLoadError(false);
     const controller = new AbortController();
-    void fetch("/api/investments", { signal: controller.signal })
-      .then((response) => response.ok ? response.json() : null)
-      .then((payload: { investments?: StoredInvestment[] } | null) => {
-        if (!payload?.investments?.length) return;
-        setInvestments(payload.investments.map(fromStoredInvestment));
-        setSamplePortfolio(false);
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
+    try {
+      const response = await fetch("/api/investments", { signal: controller.signal, cache: "no-store" });
+      if (!response.ok) throw new Error("Portfolio unavailable");
+      const payload = await response.json() as { investments?: StoredInvestment[] };
+      setInvestments((payload.investments ?? []).map(fromStoredInvestment));
+      return true;
+    } catch {
+      setLoadError(true);
+      return false;
+    } finally {
+      setLoading(false);
+    }
   }, [authenticated]);
+
+  useEffect(() => { void loadPortfolio(); }, [loadPortfolio]);
 
   if (splash) {
     return (
@@ -89,22 +97,26 @@ export function FixedIncomeApp({ authenticated, displayName }: { authenticated: 
         <header className="topbar">
           <button className="mobile-menu" aria-label="Open navigation"><Menu /></button>
           <div className="mobile-brand"><span className="brand-mark mini"><Landmark /></span><b>Fixed Income</b></div>
-          <div className="topbar-actions">{samplePortfolio && <span className="sample-badge">Sample portfolio</span>}<Button variant="ghost" size="icon" aria-label="Notifications" className="notification-button"><Bell /><i /></Button><button className="topbar-avatar" onClick={() => navigate("profile")}>{displayName.slice(0, 1).toUpperCase()}</button></div>
+          <div className="topbar-actions"><span className="cloud-status">Private account</span><button className="topbar-avatar" onClick={() => navigate("profile")}>{displayName.slice(0, 1).toUpperCase()}</button></div>
         </header>
 
         <main className="app-content">
-          {selected ? (
-            <InvestmentDetailScreen investment={selected} onBack={() => setSelectedInvestmentId(null)} />
+          {loading ? (
+            <div className="empty-state portfolio-loading"><span><Landmark aria-hidden="true" /></span><h2>Loading your portfolio</h2><p>Fetching your private investment records…</p></div>
+          ) : loadError ? (
+            <div className="empty-state"><span><Landmark aria-hidden="true" /></span><h2>Portfolio unavailable</h2><p>Your records are safe. Check the connection and try again.</p><Button onClick={() => void loadPortfolio()}>Try again</Button></div>
+          ) : selected ? (
+            <InvestmentDetailScreen investment={selected} onBack={() => setSelectedInvestmentId(null)} onDataChanged={loadPortfolio} />
           ) : screen === "home" ? (
-            <DashboardScreen displayName={displayName} financialYear={financialYear} investments={investments} onFinancialYearChange={setFinancialYear} onOpenInvestment={openInvestment} onViewInvestments={() => navigate("investments")} />
+            <DashboardScreen displayName={displayName} financialYear={financialYear} investments={investments} onFinancialYearChange={setFinancialYear} onOpenInvestment={openInvestment} onViewInvestments={() => navigate("investments")} onAddInvestment={() => setAddOpen(true)} />
           ) : screen === "investments" ? (
             <InvestmentListScreen investments={investments} onOpenInvestment={openInvestment} onAddInvestment={() => setAddOpen(true)} />
           ) : screen === "payouts" ? (
-            <PayoutsScreen investments={investments} />
+            <PayoutsScreen investments={investments} onOpenInvestment={openInvestment} />
           ) : screen === "tds" ? (
-            <TdsScreen />
+            <TdsScreen investments={investments} onOpenInvestment={openInvestment} financialYear={financialYear} />
           ) : (
-            <ProfileScreen displayName={displayName} />
+            <ProfileScreen displayName={displayName} email={email} />
           )}
         </main>
       </div>
@@ -116,7 +128,7 @@ export function FixedIncomeApp({ authenticated, displayName }: { authenticated: 
       </nav>
       <button className="mobile-floating-add" onClick={() => setAddOpen(true)} aria-label="Add investment"><CirclePlus /></button>
 
-      <AddInvestmentSheet open={addOpen} onOpenChange={setAddOpen} onSave={(investment) => { setInvestments((current) => samplePortfolio ? [investment] : [investment, ...current]); setSamplePortfolio(false); setSelectedInvestmentId(investment.id); }} />
+      <AddInvestmentSheet open={addOpen} onOpenChange={setAddOpen} onSave={async (investmentId) => { const loaded = await loadPortfolio(); if (loaded) setSelectedInvestmentId(investmentId); }} />
       <Toaster position="top-center" richColors />
     </div>
   );
@@ -147,7 +159,20 @@ type StoredInvestment = {
     expectedTdsPaise: number;
     expectedNetPaise: number;
     status: PortfolioInvestment["schedule"][number]["status"];
+    receivedAmountPaise: number | null;
+    receivedDate: string | null;
+    actualTdsPaise: number | null;
+    paymentReference: string | null;
+    payoutRemarks: string | null;
+    followUpDate: string | null;
+    tdsReflected: boolean | null;
+    reflectedAmountPaise: number | null;
+    tdsVerificationDate: string | null;
+    tdsStatus: PortfolioInvestment["schedule"][number]["tdsStatus"];
   }>;
+  documents: Array<{ id: string; documentName: string; documentType: string; financialYear: string | null; mimeType: string; sizeBytes: number; createdAt: string }>;
+  forms: Array<{ id: string; formType: string; financialYear: string; status: string; submissionDate: string | null }>;
+  activity: Array<{ id: string; action: string; summary: string; createdAt: string }>;
 };
 
 function fromStoredInvestment(value: StoredInvestment): PortfolioInvestment {
@@ -175,7 +200,28 @@ function fromStoredInvestment(value: StoredInvestment): PortfolioInvestment {
       grossInterestPaise: BigInt(payout.grossInterestPaise),
       expectedTdsPaise: BigInt(payout.expectedTdsPaise),
       expectedNetPaise: BigInt(payout.expectedNetPaise),
-      status: payout.status,
+      status: resolvePayoutStatus(payout.status, payout.dueDate),
+      receivedAmountPaise: payout.receivedAmountPaise === null ? undefined : BigInt(payout.receivedAmountPaise),
+      receivedDate: payout.receivedDate ?? undefined,
+      actualTdsPaise: payout.actualTdsPaise === null ? undefined : BigInt(payout.actualTdsPaise),
+      paymentReference: payout.paymentReference ?? undefined,
+      payoutRemarks: payout.payoutRemarks ?? undefined,
+      followUpDate: payout.followUpDate ?? undefined,
+      tdsReflected: payout.tdsReflected ?? undefined,
+      reflectedAmountPaise: payout.reflectedAmountPaise === null ? undefined : BigInt(payout.reflectedAmountPaise),
+      tdsVerificationDate: payout.tdsVerificationDate ?? undefined,
+      tdsStatus: payout.tdsStatus,
     })),
+    documents: value.documents.map((document) => ({ ...document, financialYear: document.financialYear ?? undefined })),
+    forms: value.forms.map((form) => ({ ...form, submissionDate: form.submissionDate ?? undefined })),
+    activity: value.activity,
   };
+}
+
+function resolvePayoutStatus(status: PortfolioInvestment["schedule"][number]["status"], dueDate: string) {
+  if (["received", "partial-received", "not-received"].includes(status)) return status;
+  const today = new Date().toISOString().slice(0, 10);
+  if (dueDate < today) return "overdue";
+  if (dueDate === today) return "due-today";
+  return "upcoming";
 }

@@ -32,6 +32,7 @@ export function InvestmentListScreen({ investments, onOpenInvestment, onAddInves
   const [query, setQuery] = useState("");
   const [type, setType] = useState("all");
   const [status, setStatus] = useState("active");
+  const today = new Date().toISOString().slice(0, 10);
   const filtered = useMemo(() => investments.filter((investment) => {
     const matchesQuery = `${investment.issuer} ${investment.name} ${investment.investmentNumber}`.toLowerCase().includes(query.toLowerCase());
     const matchesType = type === "all" || investment.type === type;
@@ -84,14 +85,14 @@ export function InvestmentListScreen({ investments, onOpenInvestment, onAddInves
       {filtered.length ? (
         <div className="investment-list">
           {filtered.map((investment) => {
-            const nextPayout = investment.schedule.find((payout) => payout.dueDate >= "2026-09-06");
+            const nextPayout = investment.schedule.find((payout) => payout.dueDate >= today && payout.status !== "received");
             return (
               <button className="investment-card" key={investment.id} onClick={() => onOpenInvestment(investment.id)}>
                 <span className="investment-logo"><Landmark aria-hidden="true" /></span>
                 <span className="investment-main">
                   <span className="investment-title-row">
                     <span><b>{investment.issuer}</b><small>{typeLabels[investment.type]} · {investment.name}</small></span>
-                    <Badge className="status-active">Active</Badge>
+                    <Badge className={investment.status === "active" ? "status-active" : "status-upcoming"}>{labelType(investment.status)}</Badge>
                   </span>
                   <span className="investment-numbers">
                     <span><small>Principal</small><b>{formatMoney(investment.principalPaise)}</b></span>
@@ -110,13 +111,17 @@ export function InvestmentListScreen({ investments, onOpenInvestment, onAddInves
       ) : (
         <div className="empty-state">
           <span><Landmark aria-hidden="true" /></span>
-          <h2>No investments found</h2>
-          <p>Try changing the filters or add your first investment.</p>
-          <Button onClick={onAddInvestment}>Add your first investment</Button>
+          <h2>{investments.length ? "No investments match" : "No investments added yet"}</h2>
+          <p>{investments.length ? "Try changing the search or filters." : "Add your first FD or bond to start tracking payouts."}</p>
+          {!investments.length && <Button onClick={onAddInvestment}>Add your first investment</Button>}
         </div>
       )}
     </div>
   );
+}
+
+function labelType(value: string) {
+  return value.slice(0, 1).toUpperCase() + value.slice(1);
 }
 
 function formatDate(value: string) {

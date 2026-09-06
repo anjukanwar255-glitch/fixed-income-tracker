@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { formatMoney } from "@/core/finance/calculations";
+import { calculateFinancialYear, formatMoney } from "@/core/finance/calculations";
 import type { PortfolioInvestment } from "@/core/models/financial";
 
 type DashboardProps = {
@@ -29,6 +29,7 @@ type DashboardProps = {
   onFinancialYearChange: (value: string) => void;
   onOpenInvestment: (id: string) => void;
   onViewInvestments: () => void;
+  onAddInvestment: () => void;
 };
 
 export function DashboardScreen({
@@ -38,29 +39,47 @@ export function DashboardScreen({
   onFinancialYearChange,
   onOpenInvestment,
   onViewInvestments,
+  onAddInvestment,
 }: DashboardProps) {
-  const totalPrincipal = investments.reduce((sum, item) => sum + item.principalPaise, 0n);
+  const today = new Date().toISOString().slice(0, 10);
+  const financialYears = Array.from(new Set([
+    calculateFinancialYear(today),
+    ...investments.map((item) => calculateFinancialYear(item.investmentDate)),
+    ...investments.flatMap((item) => item.schedule.map((payout) => payout.financialYear)),
+  ])).sort().reverse();
+  const totalPrincipal = investments.filter((item) => item.status === "active").reduce((sum, item) => sum + item.principalPaise, 0n);
   const fyPayouts = investments.flatMap((investment) =>
     investment.schedule
       .filter((payout) => payout.financialYear === financialYear)
       .map((payout) => ({ ...payout, investment })),
   );
   const expectedInterest = fyPayouts.reduce((sum, payout) => sum + payout.grossInterestPaise, 0n);
-  const expectedTds = fyPayouts.reduce((sum, payout) => sum + payout.expectedTdsPaise, 0n);
-  const receivedInterest = 12_000_000n;
+  const receivedPayouts = fyPayouts.filter((payout) => payout.status === "received" || payout.status === "partial-received");
+  const receivedInterest = receivedPayouts.reduce((sum, payout) => sum + (payout.receivedAmountPaise ?? 0n) + (payout.actualTdsPaise ?? 0n), 0n);
   const pendingInterest = expectedInterest > receivedInterest ? expectedInterest - receivedInterest : 0n;
+  const actualTds = receivedPayouts.reduce((sum, payout) => sum + (payout.actualTdsPaise ?? 0n), 0n);
+  const reflectedTds = fyPayouts.reduce((sum, payout) => sum + (payout.reflectedAmountPaise ?? 0n), 0n);
   const upcoming = fyPayouts
-    .filter((payout) => payout.dueDate >= "2026-09-06")
+    .filter((payout) => payout.status === "upcoming" || payout.status === "due-today" || payout.status === "overdue")
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
     .slice(0, 3);
+  const nextMaturity = investments.filter((item) => item.status === "active" && item.maturityDate >= today).sort((a, b) => a.maturityDate.localeCompare(b.maturityDate))[0];
+  const overdueCount = fyPayouts.filter((payout) => payout.status === "overdue" || payout.status === "not-received").length;
+  const tdsMismatch = fyPayouts.reduce((sum, payout) => payout.tdsStatus === "mismatch"
+    ? sum + absolute((payout.actualTdsPaise ?? payout.expectedTdsPaise) - (payout.reflectedAmountPaise ?? 0n))
+    : sum, 0n);
+  const pendingForms = investments.flatMap((item) => item.forms).filter((form) => form.financialYear === financialYear && ["required", "pending", "rejected", "expired"].includes(form.status)).length;
+  const ninetyDaysFromNow = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+  const maturityCount = investments.filter((item) => item.status === "active" && item.maturityDate >= today && item.maturityDate <= ninetyDaysFromNow).length;
+  const attentionCount = overdueCount + (tdsMismatch > 0n ? 1 : 0) + pendingForms + maturityCount;
 
   const metrics = [
     { label: "Active investment", value: formatMoney(totalPrincipal), icon: Landmark, tone: "navy" },
     { label: "Expected interest", value: formatMoney(expectedInterest), icon: TrendingUp, tone: "cyan" },
     { label: "Interest received", value: formatMoney(receivedInterest), icon: CheckCircle2, tone: "green" },
     { label: "Pending interest", value: formatMoney(pendingInterest), icon: Clock3, tone: "amber" },
-    { label: "TDS deducted", value: formatMoney(1_200_000n), icon: ReceiptIndianRupee, tone: "violet" },
-    { label: "TDS pending credit", value: formatMoney(expectedTds > 1_200_000n ? expectedTds - 1_200_000n : 250_000n), icon: ShieldCheck, tone: "red" },
+    { label: "TDS deducted", value: formatMoney(actualTds), icon: ReceiptIndianRupee, tone: "violet" },
+    { label: "TDS pending credit", value: formatMoney(actualTds > reflectedTds ? actualTds - reflectedTds : 0n), icon: ShieldCheck, tone: "red" },
   ];
 
   return (
@@ -75,14 +94,21 @@ export function DashboardScreen({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="FY 2025-26">FY 2025-26</SelectItem>
-            <SelectItem value="FY 2026-27">FY 2026-27</SelectItem>
-            <SelectItem value="FY 2027-28">FY 2027-28</SelectItem>
+            {financialYears.map((year) => <SelectItem value={year} key={year}>{year}</SelectItem>)}
           </SelectContent>
         </Select>
       </header>
 
-      <section className="portfolio-hero" aria-label="Portfolio summary">
+      {!investments.length && (
+        <div className="empty-state dashboard-empty">
+          <span><Landmark aria-hidden="true" /></span>
+          <h2>No investments added yet</h2>
+          <p>Add your first FD or bond to generate its payout and TDS schedule.</p>
+          <Button onClick={onAddInvestment}>Add your first investment</Button>
+        </div>
+      )}
+
+      {investments.length > 0 && <><section className="portfolio-hero" aria-label="Portfolio summary">
         <div className="hero-topline">
           <span>Portfolio value</span>
           <Badge className="live-badge"><span className="live-dot" />Updated now</Badge>
@@ -90,7 +116,7 @@ export function DashboardScreen({
         <strong>{formatMoney(totalPrincipal)}</strong>
         <div className="hero-breakdown">
           <div><span>Investments</span><b>{investments.length} active</b></div>
-          <div><span>Next maturity</span><b>₹7.5L · Nov 2028</b></div>
+          <div><span>Next maturity</span><b>{nextMaturity ? `${formatMoney(nextMaturity.expectedMaturityPaise ?? nextMaturity.principalPaise)} · ${formatDate(nextMaturity.maturityDate)}` : "—"}</b></div>
         </div>
         <div className="hero-glow" aria-hidden="true" />
       </section>
@@ -131,6 +157,7 @@ export function DashboardScreen({
               <ChevronRight aria-hidden="true" />
             </button>
           ))}
+          {!upcoming.length && <div className="inline-empty"><CalendarClock /><span><b>No upcoming payouts</b><small>No expected payout is scheduled in this financial year.</small></span></div>}
         </div>
       </section>
 
@@ -140,13 +167,14 @@ export function DashboardScreen({
             <h2>Attention required</h2>
             <p>Items that need your confirmation</p>
           </div>
-          <span className="attention-count">4</span>
+          <span className="attention-count">{attentionCount}</span>
         </div>
         <div className="attention-grid">
-          <AttentionItem tone="red" icon={AlertTriangle} title="1 payout not received" detail="Follow up with issuer" />
-          <AttentionItem tone="orange" icon={ReceiptIndianRupee} title="₹2,500 TDS mismatch" detail="Verify PAN credit" />
-          <AttentionItem tone="yellow" icon={FileWarning} title="2 forms pending" detail="FY 2026-27" />
-          <AttentionItem tone="slate" icon={CalendarClock} title="1 maturity approaching" detail="Within 90 days" />
+          {overdueCount > 0 && <AttentionItem tone="red" icon={AlertTriangle} title={`${overdueCount} payout${overdueCount === 1 ? "" : "s"} need attention`} detail="Confirm receipt or follow up" />}
+          {tdsMismatch > 0n && <AttentionItem tone="orange" icon={ReceiptIndianRupee} title={`${formatMoney(tdsMismatch)} TDS mismatch`} detail="Review verified PAN credit" />}
+          {pendingForms > 0 && <AttentionItem tone="yellow" icon={FileWarning} title={`${pendingForms} form${pendingForms === 1 ? "" : "s"} pending`} detail={financialYear} />}
+          {maturityCount > 0 && <AttentionItem tone="slate" icon={CalendarClock} title={`${maturityCount} maturity approaching`} detail="Within 90 days" />}
+          {attentionCount === 0 && <div className="inline-empty"><CheckCircle2 /><span><b>Nothing needs attention</b><small>Your recorded items are up to date.</small></span></div>}
         </div>
       </section>
 
@@ -154,8 +182,13 @@ export function DashboardScreen({
         <BadgeIndianRupee aria-hidden="true" />
         <p><strong>Clear by design.</strong> Expected amounts are calculations. Received and PAN-verified amounts are only marked after your confirmation.</p>
       </div>
+      </>}
     </div>
   );
+}
+
+function absolute(value: bigint) {
+  return value < 0n ? -value : value;
 }
 
 function AttentionItem({ tone, icon: Icon, title, detail }: { tone: string; icon: typeof AlertTriangle; title: string; detail: string }) {

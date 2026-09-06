@@ -30,7 +30,7 @@ import type { InterestType, InvestmentType, PayoutFrequency, PortfolioInvestment
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (investment: PortfolioInvestment) => void;
+  onSave: (investmentId: string) => Promise<void> | void;
 };
 
 const steps = ["Type", "Details", "Interest", "TDS", "Account", "Documents"];
@@ -48,21 +48,21 @@ const investmentTypes: { value: InvestmentType; title: string; note: string; ico
 
 export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
   const [step, setStep] = useState(1);
-  const [type, setType] = useState<InvestmentType>("corporate-fd");
+  const [type, setType] = useState<InvestmentType>("fixed-deposit");
   const [name, setName] = useState("");
   const [issuer, setIssuer] = useState("");
   const [number, setNumber] = useState("");
-  const [investmentDate, setInvestmentDate] = useState("2026-04-01");
-  const [amount, setAmount] = useState("1000000");
-  const [rate, setRate] = useState("9.00");
-  const [maturityDate, setMaturityDate] = useState("2031-04-01");
-  const [maturityAmount, setMaturityAmount] = useState("1000000");
+  const [investmentDate, setInvestmentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [amount, setAmount] = useState("");
+  const [rate, setRate] = useState("");
+  const [maturityDate, setMaturityDate] = useState("");
+  const [maturityAmount, setMaturityAmount] = useState("");
   const [interestType, setInterestType] = useState<InterestType>("simple");
   const [frequency, setFrequency] = useState<PayoutFrequency>("quarterly");
-  const [firstPayoutDate, setFirstPayoutDate] = useState("2026-06-30");
-  const [tdsApplicable, setTdsApplicable] = useState(true);
-  const [tdsRate, setTdsRate] = useState("10.00");
-  const [panLinked, setPanLinked] = useState(true);
+  const [firstPayoutDate, setFirstPayoutDate] = useState("");
+  const [tdsApplicable, setTdsApplicable] = useState(false);
+  const [tdsRate, setTdsRate] = useState("");
+  const [panLinked, setPanLinked] = useState(false);
   const [declarationApplicable, setDeclarationApplicable] = useState(false);
   const [bankName, setBankName] = useState("");
   const [accountLast4, setAccountLast4] = useState("");
@@ -72,6 +72,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
   const [advisor, setAdvisor] = useState("");
   const [notes, setNotes] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const draft = useMemo(() => ({
     type,
@@ -85,7 +86,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
     payoutFrequency: frequency,
     firstPayoutDate,
     maturityDate,
-    expectedMaturityPaise: parseRupeesToPaise(maturityAmount),
+    expectedMaturityPaise: maturityAmount ? parseRupeesToPaise(maturityAmount) : undefined,
     tdsApplicable,
     expectedTdsRateBps: tdsApplicable ? Math.round((Number(tdsRate) || 0) * 100) : 0,
   }), [amount, firstPayoutDate, frequency, interestType, investmentDate, issuer, maturityAmount, maturityDate, name, number, rate, tdsApplicable, tdsRate, type]);
@@ -100,30 +101,54 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
       toast.error("Add the investment name, issuer and a valid amount");
       return;
     }
-    if (step === 3 && (!rate || maturityDate <= investmentDate || firstPayoutDate < investmentDate)) {
+    if (step === 3 && (!rate || !maturityDate || !firstPayoutDate || maturityDate <= investmentDate || firstPayoutDate < investmentDate)) {
       toast.error("Check the interest rate and payout dates");
       return;
     }
     setStep((current) => Math.min(6, current + 1));
   };
 
-  const save = () => {
+  const save = async () => {
     if (accountLast4 && !/^\d{4}$/.test(accountLast4)) {
       setStep(5);
       toast.error("Enter only the last 4 account digits");
       return;
     }
+    if (selectedFile && selectedFile.size > 10 * 1024 * 1024) {
+      toast.error("Document must be 10 MB or smaller");
+      return;
+    }
     const investment: PortfolioInvestment = {
       ...draft,
-      id: crypto.randomUUID(),
+      id: "",
       status: "active",
       schedule,
+      documents: [],
+      forms: [],
+      activity: [],
     };
-    onSave(investment);
-    onOpenChange(false);
-    setStep(1);
-    toast.success(`${name} added with ${schedule.length} expected payouts`);
-    void syncInvestment(investment, { bankName, accountLast4, paymentMode, nominee, broker, advisor, notes }, selectedFile);
+    setSaving(true);
+    try {
+      const result = await syncInvestment(investment, { bankName, accountLast4, paymentMode, nominee, broker, advisor, notes }, { panLinked, declarationApplicable }, selectedFile);
+      if (result.warning) toast.warning(result.warning);
+      await onSave(result.investmentId);
+      onOpenChange(false);
+      resetForm();
+      toast.success(`${name} saved with ${result.scheduleCount} expected payouts`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Investment could not be saved");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetForm = () => {
+    setStep(1); setType("fixed-deposit"); setName(""); setIssuer(""); setNumber("");
+    setInvestmentDate(new Date().toISOString().slice(0, 10)); setAmount(""); setRate("");
+    setMaturityDate(""); setMaturityAmount(""); setInterestType("simple"); setFrequency("quarterly");
+    setFirstPayoutDate(""); setTdsApplicable(false); setTdsRate(""); setPanLinked(false);
+    setDeclarationApplicable(false); setBankName(""); setAccountLast4(""); setPaymentMode("bank-transfer");
+    setNominee(""); setBroker(""); setAdvisor(""); setNotes(""); setSelectedFile(null);
   };
 
   return (
@@ -160,7 +185,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
               <FormHeading title="Investment details" description="Enter the values shown on the receipt or certificate." />
               <div className="field-grid">
                 <Field label="Investment name" value={name} setValue={setName} placeholder="e.g. Secure Income FD" />
-                <Field label="Issuer / bank / company" value={issuer} setValue={setIssuer} placeholder="e.g. ABC Finance Ltd" />
+                <Field label="Issuer / bank / company" value={issuer} setValue={setIssuer} placeholder="Name shown on the certificate" />
                 <Field label="FD / folio / bond number" value={number} setValue={setNumber} placeholder="Certificate number" />
                 <Field label="Investment date" value={investmentDate} setValue={setInvestmentDate} type="date" />
                 <Field label="Investment amount (₹)" value={amount} setValue={setAmount} inputMode="decimal" placeholder="10,00,000" />
@@ -242,7 +267,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
 
         <SheetFooter className="add-sheet-footer">
           <Button variant="outline" onClick={() => step === 1 ? onOpenChange(false) : setStep(step - 1)}>{step > 1 && <ChevronLeft />}{step === 1 ? "Cancel" : "Back"}</Button>
-          {step < 6 ? <Button onClick={next}>Continue <ChevronRight /></Button> : <Button onClick={save}><Check /> Save investment</Button>}
+          {step < 6 ? <Button onClick={next}>Continue <ChevronRight /></Button> : <Button onClick={() => void save()} disabled={saving}><Check /> {saving ? "Saving…" : "Save investment"}</Button>}
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -272,8 +297,7 @@ function CalculationPreview({ projection, rate, amount }: { projection: ReturnTy
   );
 }
 
-async function syncInvestment(investment: PortfolioInvestment, extra: Record<string, string>, file: File | null) {
-  try {
+async function syncInvestment(investment: PortfolioInvestment, extra: Record<string, string>, flags: { panLinked: boolean; declarationApplicable: boolean }, file: File | null) {
     const response = await fetch("/api/investments", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -289,11 +313,11 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
         investmentDate: investment.investmentDate,
         firstPayoutDate: investment.firstPayoutDate,
         maturityDate: investment.maturityDate,
-        expectedMaturityPaise: Number(investment.expectedMaturityPaise ?? investment.principalPaise),
+        expectedMaturityPaise: investment.expectedMaturityPaise === undefined ? undefined : Number(investment.expectedMaturityPaise),
         tdsApplicable: investment.tdsApplicable,
         expectedTdsRateBps: investment.expectedTdsRateBps,
-        panLinked: true,
-        declarationApplicable: false,
+        panLinked: flags.panLinked,
+        declarationApplicable: flags.declarationApplicable,
         bankName: extra.bankName,
         accountLast4: extra.accountLast4,
         paymentMode: extra.paymentMode,
@@ -303,12 +327,8 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
         notes: extra.notes,
       }),
     });
-    if (!response.ok) {
-      toast.warning("Saved in this view, but cloud sync needs attention");
-      return;
-    }
-    const result = await response.json() as { investmentId: string; warning?: string | null };
-    if (result.warning) toast.warning(result.warning);
+    const result = await response.json() as { investmentId?: string; scheduleCount?: number; warning?: string | null; error?: string };
+    if (!response.ok || !result.investmentId) throw new Error(result.error ?? "Investment could not be saved");
     if (file) {
       const body = new FormData();
       body.set("file", file);
@@ -318,9 +338,7 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
       const upload = await fetch("/api/documents", { method: "POST", body });
       if (!upload.ok) toast.warning("Investment saved, but the document needs to be uploaded again");
     }
-  } catch {
-    toast.warning("Saved in this view. Cloud sync will retry when available.");
-  }
+    return { investmentId: result.investmentId, scheduleCount: result.scheduleCount ?? investment.schedule.length, warning: result.warning };
 }
 
 function formatDate(value: string) {
