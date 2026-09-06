@@ -20,20 +20,43 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { indianBankGroups } from "@/core/data/indian-banks";
 import { formatMoney, generatePayoutSchedule, parseRupeesToPaise } from "@/core/finance/calculations";
-import type { InterestType, InvestmentType, PayoutFrequency, PortfolioInvestment } from "@/core/models/financial";
+import { apiFetch } from "@/lib/firebase-client";
+import type { CompoundingFrequency, DayCountBasis, InterestType, InvestmentType, PayoutFrequency, PortfolioInvestment } from "@/core/models/financial";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (investmentId: string) => Promise<void> | void;
+  initialInvestment?: PortfolioInvestment | null;
 };
 
 const steps = ["Type", "Details", "Interest", "TDS", "Account", "Documents"];
+const MANUAL_BANK = "manual-bank";
+const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+const allowedDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png"]);
+const knownBanks: Set<string> = new Set(indianBankGroups.flatMap((group) => group.banks));
+
+const payoutOptions: { value: PayoutFrequency; label: string }[] = [
+  { value: "monthly", label: "Monthly" },
+  { value: "quarterly", label: "Quarterly" },
+  { value: "yearly", label: "Yearly" },
+  { value: "on-maturity", label: "On maturity" },
+];
 
 const investmentTypes: { value: InvestmentType; title: string; note: string; icon: typeof Landmark }[] = [
   { value: "fixed-deposit", title: "Fixed Deposit", note: "Bank or small finance bank", icon: Landmark },
@@ -46,34 +69,39 @@ const investmentTypes: { value: InvestmentType; title: string; note: string; ico
   { value: "other", title: "Other", note: "Custom fixed-income product", icon: FileText },
 ];
 
-export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
+export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestment }: Props) {
   const [step, setStep] = useState(1);
-  const [type, setType] = useState<InvestmentType>("fixed-deposit");
-  const [name, setName] = useState("");
-  const [issuer, setIssuer] = useState("");
-  const [number, setNumber] = useState("");
-  const [investmentDate, setInvestmentDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [amount, setAmount] = useState("");
-  const [rate, setRate] = useState("");
-  const [maturityDate, setMaturityDate] = useState("");
-  const [maturityAmount, setMaturityAmount] = useState("");
-  const [interestType, setInterestType] = useState<InterestType>("simple");
-  const [frequency, setFrequency] = useState<PayoutFrequency>("quarterly");
-  const [firstPayoutDate, setFirstPayoutDate] = useState("");
-  const [tdsApplicable, setTdsApplicable] = useState(false);
-  const [tdsRate, setTdsRate] = useState("");
-  const [panLinked, setPanLinked] = useState(false);
-  const [declarationApplicable, setDeclarationApplicable] = useState(false);
-  const [bankName, setBankName] = useState("");
-  const [accountLast4, setAccountLast4] = useState("");
-  const [paymentMode, setPaymentMode] = useState("bank-transfer");
-  const [nominee, setNominee] = useState("");
-  const [broker, setBroker] = useState("");
-  const [advisor, setAdvisor] = useState("");
-  const [notes, setNotes] = useState("");
+  const [type, setType] = useState<InvestmentType>(initialInvestment?.type ?? "fixed-deposit");
+  const [name, setName] = useState(initialInvestment?.name ?? "");
+  const [issuer, setIssuer] = useState(initialInvestment?.issuer ?? "");
+  const [number, setNumber] = useState(initialInvestment?.investmentNumber ?? "");
+  const [investmentDate, setInvestmentDate] = useState(() => initialInvestment?.investmentDate ?? new Date().toISOString().slice(0, 10));
+  const [amount, setAmount] = useState(() => initialInvestment ? paiseToInput(initialInvestment.principalPaise) : "");
+  const [rate, setRate] = useState(() => initialInvestment ? (initialInvestment.annualRateBps / 100).toFixed(2) : "");
+  const [maturityDate, setMaturityDate] = useState(initialInvestment?.maturityDate ?? "");
+  const [maturityAmount, setMaturityAmount] = useState(() => initialInvestment?.expectedMaturityPaise ? paiseToInput(initialInvestment.expectedMaturityPaise) : "");
+  const [interestType, setInterestType] = useState<InterestType>(initialInvestment?.interestType ?? "simple");
+  const [compoundingFrequency, setCompoundingFrequency] = useState<CompoundingFrequency>(initialInvestment?.compoundingFrequency ?? "quarterly");
+  const [dayCountBasis, setDayCountBasis] = useState<DayCountBasis>(initialInvestment?.dayCountBasis ?? "actual-365");
+  const [frequency, setFrequency] = useState<PayoutFrequency>(initialInvestment?.payoutFrequency ?? "quarterly");
+  const [firstPayoutDate, setFirstPayoutDate] = useState(initialInvestment?.firstPayoutDate ?? "");
+  const [tdsApplicable, setTdsApplicable] = useState(initialInvestment?.tdsApplicable ?? false);
+  const [tdsRate, setTdsRate] = useState(() => initialInvestment ? (initialInvestment.expectedTdsRateBps / 100).toFixed(2) : "");
+  const [panLinked, setPanLinked] = useState(initialInvestment?.panLinked ?? false);
+  const [declarationApplicable, setDeclarationApplicable] = useState(initialInvestment?.declarationApplicable ?? false);
+  const [bankOption, setBankOption] = useState(() => initialInvestment?.bankName ? (knownBanks.has(initialInvestment.bankName) ? initialInvestment.bankName : MANUAL_BANK) : "");
+  const [manualBankName, setManualBankName] = useState(() => initialInvestment?.bankName && !knownBanks.has(initialInvestment.bankName) ? initialInvestment.bankName : "");
+  const [accountLast4, setAccountLast4] = useState(initialInvestment?.accountLast4 ?? "");
+  const [paymentMode, setPaymentMode] = useState(initialInvestment?.paymentMode ?? "bank-transfer");
+  const [nominee, setNominee] = useState(initialInvestment?.nominee ?? "");
+  const [broker, setBroker] = useState(initialInvestment?.brokerPlatform ?? "");
+  const [advisor, setAdvisor] = useState(initialInvestment?.advisorName ?? "");
+  const [notes, setNotes] = useState(initialInvestment?.notes ?? "");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const resolvedBankName = bankOption === MANUAL_BANK ? manualBankName.trim() : bankOption;
+  const bondDocument = isBondType(type);
   const draft = useMemo(() => ({
     type,
     name: name || "New investment",
@@ -83,13 +111,15 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
     principalPaise: parseRupeesToPaise(amount),
     annualRateBps: Math.round((Number(rate) || 0) * 100),
     interestType,
+    compoundingFrequency,
+    dayCountBasis,
     payoutFrequency: frequency,
-    firstPayoutDate,
+    firstPayoutDate: frequency === "on-maturity" ? maturityDate : firstPayoutDate,
     maturityDate,
     expectedMaturityPaise: maturityAmount ? parseRupeesToPaise(maturityAmount) : undefined,
     tdsApplicable,
     expectedTdsRateBps: tdsApplicable ? Math.round((Number(tdsRate) || 0) * 100) : 0,
-  }), [amount, firstPayoutDate, frequency, interestType, investmentDate, issuer, maturityAmount, maturityDate, name, number, rate, tdsApplicable, tdsRate, type]);
+  }), [amount, compoundingFrequency, dayCountBasis, firstPayoutDate, frequency, interestType, investmentDate, issuer, maturityAmount, maturityDate, name, number, rate, tdsApplicable, tdsRate, type]);
 
   const schedule = useMemo(() => {
     try { return generatePayoutSchedule(draft); } catch { return []; }
@@ -101,7 +131,8 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
       toast.error("Add the investment name, issuer and a valid amount");
       return;
     }
-    if (step === 3 && (!rate || !maturityDate || !firstPayoutDate || maturityDate <= investmentDate || firstPayoutDate < investmentDate)) {
+    const invalidFirstPayout = frequency !== "on-maturity" && (!firstPayoutDate || firstPayoutDate < investmentDate || firstPayoutDate > maturityDate);
+    if (step === 3 && (!rate || !maturityDate || maturityDate <= investmentDate || invalidFirstPayout)) {
       toast.error("Check the interest rate and payout dates");
       return;
     }
@@ -114,27 +145,27 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
       toast.error("Enter only the last 4 account digits");
       return;
     }
-    if (selectedFile && selectedFile.size > 10 * 1024 * 1024) {
-      toast.error("Document must be 10 MB or smaller");
+    if (selectedFile && (!allowedDocumentTypes.has(selectedFile.type) || selectedFile.size <= 0 || selectedFile.size > MAX_DOCUMENT_BYTES)) {
+      toast.error("Upload a PDF, JPG, JPEG or PNG up to 10 MB");
       return;
     }
     const investment: PortfolioInvestment = {
       ...draft,
-      id: "",
-      status: "active",
+      id: initialInvestment?.id ?? "",
+      status: initialInvestment?.status ?? "active",
       schedule,
-      documents: [],
-      forms: [],
-      activity: [],
+      documents: initialInvestment?.documents ?? [],
+      forms: initialInvestment?.forms ?? [],
+      activity: initialInvestment?.activity ?? [],
     };
     setSaving(true);
     try {
-      const result = await syncInvestment(investment, { bankName, accountLast4, paymentMode, nominee, broker, advisor, notes }, { panLinked, declarationApplicable }, selectedFile);
+      const result = await syncInvestment(investment, { bankName: resolvedBankName, accountLast4, paymentMode, nominee, broker, advisor, notes }, { panLinked, declarationApplicable }, selectedFile);
       if (result.warning) toast.warning(result.warning);
       await onSave(result.investmentId);
       onOpenChange(false);
       resetForm();
-      toast.success(`${name} saved with ${result.scheduleCount} expected payouts`);
+      toast.success(initialInvestment ? `${name} updated` : `${name} saved with ${result.scheduleCount} expected payouts`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Investment could not be saved");
     } finally {
@@ -145,9 +176,9 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
   const resetForm = () => {
     setStep(1); setType("fixed-deposit"); setName(""); setIssuer(""); setNumber("");
     setInvestmentDate(new Date().toISOString().slice(0, 10)); setAmount(""); setRate("");
-    setMaturityDate(""); setMaturityAmount(""); setInterestType("simple"); setFrequency("quarterly");
+    setMaturityDate(""); setMaturityAmount(""); setInterestType("simple"); setCompoundingFrequency("quarterly"); setDayCountBasis("actual-365"); setFrequency("quarterly");
     setFirstPayoutDate(""); setTdsApplicable(false); setTdsRate(""); setPanLinked(false);
-    setDeclarationApplicable(false); setBankName(""); setAccountLast4(""); setPaymentMode("bank-transfer");
+    setDeclarationApplicable(false); setBankOption(""); setManualBankName(""); setAccountLast4(""); setPaymentMode("bank-transfer");
     setNominee(""); setBroker(""); setAdvisor(""); setNotes(""); setSelectedFile(null);
   };
 
@@ -157,7 +188,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
         <SheetHeader className="add-sheet-header">
           <div className="add-sheet-title-row">
             <span className="brand-mark mini"><Landmark aria-hidden="true" /></span>
-            <div><SheetTitle>Add investment</SheetTitle><SheetDescription>Step {step} of 6 · {steps[step - 1]}</SheetDescription></div>
+            <div><SheetTitle>{initialInvestment ? "Edit investment" : "Add investment"}</SheetTitle><SheetDescription>Step {step} of 6 · {steps[step - 1]}</SheetDescription></div>
           </div>
           <div className="stepper" aria-label={`Step ${step} of 6`}>
             {steps.map((label, index) => <span className={index + 1 <= step ? "complete" : ""} key={label}><i>{index + 1 < step ? <Check /> : index + 1}</i><small>{label}</small></span>)}
@@ -198,10 +229,12 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
             <div className="form-section">
               <FormHeading title="Interest schedule" description="We will generate an editable expected payout schedule." />
               <div className="field-grid">
-                <div className="form-field"><Label>Interest type</Label><Select value={interestType} onValueChange={(value) => setInterestType(value as InterestType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="simple">Simple</SelectItem><SelectItem value="compound">Compound</SelectItem><SelectItem value="cumulative">Cumulative</SelectItem></SelectContent></Select></div>
+                <div className="form-field"><Label>Interest type</Label><Select value={interestType} onValueChange={(value) => { const nextType = value as InterestType; setInterestType(nextType); if (nextType !== "simple") setFrequency("on-maturity"); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="simple">Simple</SelectItem><SelectItem value="compound">Compound</SelectItem><SelectItem value="cumulative">Cumulative</SelectItem></SelectContent></Select></div>
                 <Field label="Annual interest rate (%)" value={rate} setValue={setRate} inputMode="decimal" placeholder="9.00" />
-                <div className="form-field"><Label>Payout frequency</Label><Select value={frequency} onValueChange={(value) => setFrequency(value as PayoutFrequency)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="monthly">Monthly</SelectItem><SelectItem value="quarterly">Quarterly</SelectItem><SelectItem value="half-yearly">Half-yearly</SelectItem><SelectItem value="yearly">Yearly</SelectItem><SelectItem value="on-maturity">On maturity</SelectItem><SelectItem value="custom">Custom schedule</SelectItem></SelectContent></Select></div>
-                <Field label="First payout date" value={firstPayoutDate} setValue={setFirstPayoutDate} type="date" />
+                <div className="form-field"><Label>Payout frequency</Label><Select value={frequency} disabled={interestType !== "simple"} onValueChange={(value) => setFrequency(value as PayoutFrequency)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{payoutOptions.map((option) => <SelectItem value={option.value} key={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>{interestType !== "simple" && <p className="field-note">Compound/cumulative interest is credited on maturity.</p>}</div>
+                {interestType !== "simple" && <div className="form-field"><Label>Compounding frequency</Label><Select value={compoundingFrequency} onValueChange={(value) => setCompoundingFrequency(value as CompoundingFrequency)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="monthly">Monthly</SelectItem><SelectItem value="quarterly">Quarterly</SelectItem><SelectItem value="half-yearly">Half-yearly</SelectItem><SelectItem value="yearly">Yearly</SelectItem></SelectContent></Select></div>}
+                <div className="form-field"><Label>Interest day-count basis</Label><Select value={dayCountBasis} onValueChange={(value) => setDayCountBasis(value as DayCountBasis)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="actual-365">Actual / 365</SelectItem><SelectItem value="actual-actual">Actual / Actual</SelectItem><SelectItem value="30-360">30 / 360</SelectItem></SelectContent></Select><p className="field-note">Use the basis printed in the issuer&apos;s terms.</p></div>
+                {frequency !== "on-maturity" && <Field label="First payout date" value={firstPayoutDate} setValue={setFirstPayoutDate} type="date" min={investmentDate} max={maturityDate || undefined} />}
                 <Field label="Maturity date" value={maturityDate} setValue={setMaturityDate} type="date" />
               </div>
               {firstProjection && <CalculationPreview projection={firstProjection} rate={rate} amount={draft.principalPaise} />}
@@ -229,7 +262,24 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
             <div className="form-section">
               <FormHeading title="Account & references" description="Only the last four account digits are displayed or stored here." />
               <div className="field-grid">
-                <Field label="Bank name" value={bankName} setValue={setBankName} placeholder="Receiving bank" />
+                <div className="form-field">
+                  <Label>Bank name</Label>
+                  <Select value={bankOption} onValueChange={setBankOption}>
+                    <SelectTrigger><SelectValue placeholder="Choose receiving bank" /></SelectTrigger>
+                    <SelectContent position="popper" className="bank-select-content">
+                      {indianBankGroups.map((group, index) => (
+                        <SelectGroup key={group.label}>
+                          {index > 0 && <SelectSeparator />}
+                          <SelectLabel>{group.label}</SelectLabel>
+                          {group.banks.map((bank) => <SelectItem value={bank} key={bank}>{bank}</SelectItem>)}
+                        </SelectGroup>
+                      ))}
+                      <SelectSeparator />
+                      <SelectItem value={MANUAL_BANK}>Other bank — enter manually</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {bankOption === MANUAL_BANK && <Field label="Enter bank name" value={manualBankName} setValue={setManualBankName} placeholder="Type the receiving bank" maxLength={100} autoFocus />}
                 <Field label="Account last 4 digits" value={accountLast4} setValue={(value) => setAccountLast4(value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" placeholder="1234" />
                 <div className="form-field"><Label>Payment mode</Label><Select value={paymentMode} onValueChange={setPaymentMode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="bank-transfer">Bank transfer</SelectItem><SelectItem value="cheque">Cheque</SelectItem><SelectItem value="broker-wallet">Broker wallet</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
                 <Field label="Nominee" value={nominee} setValue={setNominee} placeholder="Optional" />
@@ -243,12 +293,21 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave }: Props) {
 
           {step === 6 && (
             <div className="form-section">
-              <FormHeading title="Documents & review" description="Upload a certificate now or add documents later." />
+              <FormHeading title="Documents & review" description={bondDocument ? "Upload the bond certificate, allotment letter or statement now." : "Upload a certificate now or add documents later."} />
               <label className="upload-zone">
-                <input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)} />
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  if (file && (!allowedDocumentTypes.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES)) {
+                    setSelectedFile(null);
+                    event.currentTarget.value = "";
+                    toast.error("Upload a PDF, JPG, JPEG or PNG up to 10 MB");
+                    return;
+                  }
+                  setSelectedFile(file);
+                }} />
                 <UploadCloud aria-hidden="true" />
-                <b>{selectedFile?.name ?? "Add investment document"}</b>
-                <span>PDF, JPG or PNG · private access</span>
+                <b>{selectedFile?.name ?? (bondDocument ? "Add bond document" : "Add investment document")}</b>
+                <span>PDF, JPG, JPEG or PNG · max 10 MB · private access</span>
               </label>
               <div className="review-card">
                 <span className="review-icon"><Landmark /></span>
@@ -298,8 +357,8 @@ function CalculationPreview({ projection, rate, amount }: { projection: ReturnTy
 }
 
 async function syncInvestment(investment: PortfolioInvestment, extra: Record<string, string>, flags: { panLinked: boolean; declarationApplicable: boolean }, file: File | null) {
-    const response = await fetch("/api/investments", {
-      method: "POST",
+    const response = await apiFetch(investment.id ? `/api/investments/${investment.id}` : "/api/investments", {
+      method: investment.id ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         investmentType: investment.type,
@@ -309,6 +368,8 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
         principalPaise: Number(investment.principalPaise),
         interestRateBps: investment.annualRateBps,
         interestType: investment.interestType,
+        compoundingFrequency: investment.compoundingFrequency,
+        dayCountBasis: investment.dayCountBasis,
         payoutFrequency: investment.payoutFrequency,
         investmentDate: investment.investmentDate,
         firstPayoutDate: investment.firstPayoutDate,
@@ -333,15 +394,25 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
       const body = new FormData();
       body.set("file", file);
       body.set("investmentId", result.investmentId);
-      body.set("documentType", "investment-certificate");
+      body.set("documentType", isBondType(investment.type) ? "bond-certificate" : "investment-certificate");
       body.set("financialYear", investment.schedule[0]?.financialYear ?? "");
-      const upload = await fetch("/api/documents", { method: "POST", body });
+      const upload = await apiFetch("/api/documents", { method: "POST", body });
       if (!upload.ok) toast.warning("Investment saved, but the document needs to be uploaded again");
     }
     return { investmentId: result.investmentId, scheduleCount: result.scheduleCount ?? investment.schedule.length, warning: result.warning };
 }
 
+function isBondType(type: InvestmentType) {
+  return ["corporate-bond", "government-bond", "ncd", "debenture", "government-security"].includes(type);
+}
+
 function formatDate(value: string) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
+}
+
+function paiseToInput(value: bigint) {
+  const rupees = value / 100n;
+  const paise = value % 100n;
+  return paise ? `${rupees}.${paise.toString().padStart(2, "0")}` : rupees.toString();
 }

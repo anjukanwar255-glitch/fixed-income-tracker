@@ -1,9 +1,10 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { headers } from "next/headers";
 import { z } from "zod";
 
 import { calculateFinancialYear, generatePayoutSchedule } from "@/core/finance/calculations";
 import type { InvestmentDraft } from "@/core/models/financial";
+import { requireEntitlement } from "@/lib/billing";
+import { createUserBackup } from "@/lib/backups";
 import { getDb } from "@/db";
 import {
   activityLogs,
@@ -15,6 +16,7 @@ import {
   tdsRecords,
   users,
 } from "@/db/schema";
+import { authenticatedRequest } from "@/lib/firebase-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +28,8 @@ const investmentInput = z.object({
   principalPaise: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   interestRateBps: z.number().int().min(0).max(100_000),
   interestType: z.enum(["simple", "compound", "cumulative"]),
+  compoundingFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly"]).default("quarterly"),
+  dayCountBasis: z.enum(["actual-365", "actual-actual", "30-360"]).default("actual-365"),
   payoutFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly", "on-maturity", "custom"]),
   investmentDate: z.string().date(),
   firstPayoutDate: z.string().date(),
@@ -49,19 +53,25 @@ const investmentInput = z.object({
   if (value.payoutFrequency !== "custom" && value.firstPayoutDate < value.investmentDate) {
     context.addIssue({ code: "custom", path: ["firstPayoutDate"], message: "First payout cannot be before investment" });
   }
+  if (value.payoutFrequency !== "on-maturity" && value.firstPayoutDate > value.maturityDate) {
+    context.addIssue({ code: "custom", path: ["firstPayoutDate"], message: "First payout cannot be after maturity" });
+  }
+  if (value.interestType !== "simple" && value.payoutFrequency !== "on-maturity") {
+    context.addIssue({ code: "custom", path: ["payoutFrequency"], message: "Compound and cumulative investments pay on maturity" });
+  }
 });
 
 async function authenticatedOwner() {
-  const requestHeaders = await headers();
-  const id = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  if (!id) return null;
-  return { id, email };
+  const user = await authenticatedRequest();
+  if (!user) return null;
+  return { id: user.uid, email: user.email, mobileE164: user.phoneNumber, token: user.token, appCheckToken: user.appCheckToken, authTime: user.authTime, uid: user.uid, phoneNumber: user.phoneNumber };
 }
 
 export async function GET() {
   const owner = await authenticatedOwner();
   if (!owner) return Response.json({ error: "Authentication required" }, { status: 401 });
+  const paywall = await requireEntitlement(owner.id);
+  if (paywall) return paywall;
 
   try {
     const db = getDb();
@@ -132,6 +142,8 @@ export async function GET() {
 export async function POST(request: Request) {
   const owner = await authenticatedOwner();
   if (!owner) return Response.json({ error: "Authentication required" }, { status: 401 });
+  const paywall = await requireEntitlement(owner.id);
+  if (paywall) return paywall;
 
   const parsed = investmentInput.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -160,6 +172,8 @@ export async function POST(request: Request) {
     principalPaise: BigInt(input.principalPaise),
     annualRateBps: input.interestRateBps,
     interestType: input.interestType,
+    compoundingFrequency: input.compoundingFrequency,
+    dayCountBasis: input.dayCountBasis,
     payoutFrequency: input.payoutFrequency,
     firstPayoutDate: input.firstPayoutDate,
     maturityDate: input.maturityDate,
@@ -174,9 +188,10 @@ export async function POST(request: Request) {
       id: owner.id,
       authSubject: owner.id,
       email: owner.email,
+      mobileE164: owner.mobileE164,
     }).onConflictDoUpdate({
       target: users.authSubject,
-      set: { email: owner.email, updatedAt: createdAt },
+      set: { email: owner.email, mobileE164: owner.mobileE164, updatedAt: createdAt },
     });
 
     const operations = [
@@ -190,6 +205,8 @@ export async function POST(request: Request) {
         principalPaise: input.principalPaise,
         interestRateBps: input.interestRateBps,
         interestType: input.interestType,
+        compoundingFrequency: input.compoundingFrequency,
+        dayCountBasis: input.dayCountBasis,
         payoutFrequency: input.payoutFrequency,
         investmentDate: input.investmentDate,
         firstPayoutDate: input.firstPayoutDate,
@@ -241,12 +258,15 @@ export async function POST(request: Request) {
         createdAt,
       }),
     ];
-    await db.batch(operations);
+    await db.batch(operations as unknown as Parameters<typeof db.batch>[0]);
+
+    const backupWarning = await createUserBackup(owner).then(() => null).catch(() => "Firebase recovery backup is pending configuration");
+    const warnings = [duplicate.length ? "An investment with this number already exists" : null, backupWarning].filter(Boolean);
 
     return Response.json({
       investmentId,
       scheduleCount: schedule.length,
-      warning: duplicate.length ? "An investment with this number already exists" : null,
+      warning: warnings.length ? warnings.join(". ") : null,
     }, { status: 201 });
   } catch {
     return Response.json({ error: "The investment could not be saved. Your input has been preserved." }, { status: 503 });

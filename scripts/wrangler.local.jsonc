@@ -1,0 +1,18 @@
+// Local-only Wrangler config used by `npm run db:migrate:local`.
+//
+// It lives under `scripts/` rather than at the repository root on purpose: the
+// Sites platform discovers a root `wrangler.jsonc`, and this project is not
+// meant to have one. The `database_id` matches the placeholder that
+// `vite.config.ts` gives the dev server, so both point at the same local
+// Miniflare storage under `.wrangler/state`.
+{
+  "name": "fixed-income-tracker-local",
+  "compatibility_date": "2025-01-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "site-creator-d1",
+      "database_id": "00000000-0000-4000-8000-000000000000"
+    }
+  ]
+}

@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Archive,
   ArrowLeft,
   CalendarDays,
   CheckCircle2,
@@ -11,8 +12,10 @@ import {
   FileText,
   History,
   Landmark,
+  Pencil,
   ShieldCheck,
   Upload,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -25,17 +28,21 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { calculateFinancialYear, calculateInterest, formatMoney, parseRupeesToPaise } from "@/core/finance/calculations";
+import { apiFetch, downloadDocument } from "@/lib/firebase-client";
 import type { PayoutProjection, PortfolioInvestment } from "@/core/models/financial";
 
 type Props = {
   investment: PortfolioInvestment;
   onBack: () => void;
   onDataChanged: () => Promise<boolean>;
+  onEdit: () => void;
 };
 
 type PayoutDialog = { payout: PayoutProjection; outcome: "received" | "not-received" } | null;
+const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+const allowedDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png"]);
 
-export function InvestmentDetailScreen({ investment, onBack, onDataChanged }: Props) {
+export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEdit }: Props) {
   const [payoutDialog, setPayoutDialog] = useState<PayoutDialog>(null);
   const [receivedAmount, setReceivedAmount] = useState("");
   const [receivedDate, setReceivedDate] = useState(todayIso());
@@ -52,6 +59,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged }: Pr
   const [tdsRemarks, setTdsRemarks] = useState("");
   const [savingTds, setSavingTds] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
 
   const annualInterest = calculateInterest(investment.principalPaise, investment.annualRateBps);
@@ -88,7 +96,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged }: Pr
     }
     setSavingPayout(true);
     try {
-      const response = await fetch("/api/payouts", {
+      const response = await apiFetch("/api/payouts", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -125,7 +133,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged }: Pr
     if (!tdsDialog) return;
     setSavingTds(true);
     try {
-      const response = await fetch("/api/tds", {
+      const response = await apiFetch("/api/tds", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -147,16 +155,28 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged }: Pr
     }
   };
 
+  const saveDocument = async (documentId: string, fileName: string) => {
+    try {
+      await downloadDocument(documentId, fileName);
+    } catch {
+      toast.error("Document could not be downloaded");
+    }
+  };
+
   const uploadDocument = async (file?: File) => {
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { toast.error("Document must be 10 MB or smaller"); return; }
+    if (!allowedDocumentTypes.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES) {
+      toast.error("Upload a PDF, JPG, JPEG or PNG up to 10 MB");
+      if (uploadRef.current) uploadRef.current.value = "";
+      return;
+    }
     setUploading(true);
     try {
       const body = new FormData();
       body.set("file", file); body.set("investmentId", investment.id);
-      body.set("documentType", "investment-document");
+      body.set("documentType", isBondType(investment.type) ? "bond-document" : "investment-document");
       body.set("financialYear", calculateFinancialYear(investment.investmentDate));
-      const response = await fetch("/api/documents", { method: "POST", body });
+      const response = await apiFetch("/api/documents", { method: "POST", body });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Document could not be uploaded");
       await onDataChanged(); toast.success("Document uploaded securely");
@@ -165,6 +185,35 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged }: Pr
     } finally {
       setUploading(false); if (uploadRef.current) uploadRef.current.value = "";
     }
+  };
+
+  const updateInvestmentStatus = async (action: "mature" | "close" | "archive") => {
+    setStatusBusy(true);
+    try {
+      const response = await apiFetch(`/api/investments/${investment.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Investment could not be updated");
+      await onDataChanged();
+      toast.success(action === "archive" ? "Investment archived" : `Investment marked ${action === "mature" ? "matured" : "closed"}`);
+      if (action === "archive") onBack();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Investment could not be updated");
+    } finally {
+      setStatusBusy(false);
+    }
+  };
+
+  const deleteDocument = async (documentId: string) => {
+    if (!window.confirm("Permanently delete this document? This cannot be undone.")) return;
+    const response = await apiFetch(`/api/documents/${documentId}`, { method: "DELETE" });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) { toast.error(result.error ?? "Document could not be deleted"); return; }
+    await onDataChanged();
+    toast.success("Document deleted");
   };
 
   return (
@@ -177,6 +226,11 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged }: Pr
           <p>{investment.name}{investment.investmentNumber ? ` · •••• ${investment.investmentNumber.slice(-4)}` : ""}</p>
         </div>
         <Badge className={investment.status === "active" ? "status-active" : "status-upcoming"}>{labelType(investment.status)}</Badge>
+        <div className="detail-actions">
+          <Button size="sm" variant="outline" onClick={onEdit}><Pencil /> Edit</Button>
+          {investment.status === "active" && <Button size="sm" variant="outline" disabled={statusBusy} onClick={() => void updateInvestmentStatus("mature")}><CheckCircle2 /> Mark matured</Button>}
+          <Button size="sm" variant="ghost" disabled={statusBusy} onClick={() => void updateInvestmentStatus("archive")}><Archive /> Archive</Button>
+        </div>
         <div className="detail-key-numbers">
           <div><span>Investment</span><strong>{formatMoney(investment.principalPaise)}</strong></div>
           <div><span>Interest rate</span><strong>{(investment.annualRateBps / 100).toFixed(2)}% <small>p.a.</small></strong></div>
@@ -225,11 +279,11 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged }: Pr
           <SectionTitle title="Documents" description="Private files linked to this investment" />
           <div className="simple-list">
             {investment.documents.map((document) => (
-              <div className="document-row" key={document.id}><span><FileText /><b>{document.documentName}</b><small>{labelType(document.documentType)} · {formatBytes(document.sizeBytes)}</small></span><Button asChild variant="ghost" size="icon"><a href={`/api/documents/download/${document.id}`} aria-label={`Download ${document.documentName}`}><Download /></a></Button></div>
+              <div className="document-row" key={document.id}><span><FileText /><b>{document.documentName}</b><small>{labelType(document.documentType)} · {formatBytes(document.sizeBytes)}</small></span><span className="document-actions"><Button variant="ghost" size="icon" aria-label={`Download ${document.documentName}`} onClick={() => void saveDocument(document.id, document.documentName)}><Download /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${document.documentName}`} onClick={() => void deleteDocument(document.id)}><Trash2 /></Button></span></div>
             ))}
-            {!investment.documents.length && <InlineEmpty icon={FileText} title="No documents uploaded" detail="Add a PDF, JPG or PNG up to 10 MB." />}
+            {!investment.documents.length && <InlineEmpty icon={FileText} title="No documents uploaded" detail="Add a PDF, JPG, JPEG or PNG up to 10 MB." />}
           </div>
-          <input ref={uploadRef} className="sr-only" type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => void uploadDocument(event.target.files?.[0])} />
+          <input ref={uploadRef} className="sr-only" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => void uploadDocument(event.target.files?.[0])} />
           <Button variant="outline" disabled={uploading} onClick={() => uploadRef.current?.click()}><Upload /> {uploading ? "Uploading…" : "Upload document"}</Button>
         </TabsContent>
 
@@ -299,6 +353,7 @@ function PayoutList({ investment, onConfirm, limit }: { investment: PortfolioInv
 function FormField({ label, id, children }: { label: string; id: string; children: React.ReactNode }) { return <div className="form-field"><Label htmlFor={id}>{label}</Label>{children}</div>; }
 function SectionTitle({ title, description }: { title: string; description: string }) { return <div className="section-heading"><div><h2>{title}</h2><p>{description}</p></div></div>; }
 function InlineEmpty({ icon: Icon, title, detail }: { icon: typeof FileText; title: string; detail: string }) { return <div className="inline-empty"><Icon /><span><b>{title}</b><small>{detail}</small></span></div>; }
+function isBondType(type: PortfolioInvestment["type"]) { return ["corporate-bond", "government-bond", "ncd", "debenture", "government-security"].includes(type); }
 function Activity({ date, title }: { date: string; title: string }) { return <div className="activity-row"><span className="activity-icon"><History aria-hidden="true" /></span><span><b>{title}</b><small>{date}</small></span></div>; }
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 function paiseToInput(value: bigint) { const rupees = value / 100n; const paise = value % 100n; return paise ? `${rupees}.${paise.toString().padStart(2, "0")}` : rupees.toString(); }

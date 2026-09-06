@@ -69,7 +69,7 @@ export function DashboardScreen({
     ? sum + absolute((payout.actualTdsPaise ?? payout.expectedTdsPaise) - (payout.reflectedAmountPaise ?? 0n))
     : sum, 0n);
   const pendingForms = investments.flatMap((item) => item.forms).filter((form) => form.financialYear === financialYear && ["required", "pending", "rejected", "expired"].includes(form.status)).length;
-  const ninetyDaysFromNow = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+  const ninetyDaysFromNow = new Date(new Date(`${today}T00:00:00Z`).getTime() + 90 * 86_400_000).toISOString().slice(0, 10);
   const maturityCount = investments.filter((item) => item.status === "active" && item.maturityDate >= today && item.maturityDate <= ninetyDaysFromNow).length;
   const attentionCount = overdueCount + (tdsMismatch > 0n ? 1 : 0) + pendingForms + maturityCount;
 

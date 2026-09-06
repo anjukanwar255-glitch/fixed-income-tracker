@@ -1,4 +1,6 @@
 import type {
+  CompoundingFrequency,
+  DayCountBasis,
   InvestmentDraft,
   PayoutFrequency,
   PayoutProjection,
@@ -22,6 +24,53 @@ export function calculateInterest(
   return divideRoundHalfUp(
     principalPaise * BigInt(annualRateBps) * BigInt(periodMonths),
     BASIS_POINTS * MONTHS_IN_YEAR,
+  );
+}
+
+/**
+ * Calculates simple interest for an exact date range. The start date is
+ * inclusive and the end date is exclusive, matching normal accrual practice.
+ */
+export function calculateInterestForDates(
+  principalPaise: bigint,
+  annualRateBps: number,
+  startIso: string,
+  endIso: string,
+  basis: DayCountBasis = "actual-365",
+) {
+  const start = parseIsoDate(startIso);
+  const end = parseIsoDate(endIso);
+  if (end.getTime() < start.getTime()) throw new Error("Accrual end cannot precede start");
+  if (end.getTime() === start.getTime()) return 0n;
+
+  if (basis === "30-360") {
+    const days = days360(start, end);
+    return divideRoundHalfUp(
+      principalPaise * BigInt(annualRateBps) * BigInt(days),
+      BASIS_POINTS * 360n,
+    );
+  }
+
+  if (basis === "actual-actual") {
+    let cursor = start;
+    let interest = 0n;
+    while (cursor.getTime() < end.getTime()) {
+      const yearEnd = new Date(Date.UTC(cursor.getUTCFullYear() + 1, 0, 1));
+      const segmentEnd = yearEnd.getTime() < end.getTime() ? yearEnd : end;
+      const days = daysBetween(cursor, segmentEnd);
+      const denominator = isLeapYear(cursor.getUTCFullYear()) ? 366n : 365n;
+      interest += divideRoundHalfUp(
+        principalPaise * BigInt(annualRateBps) * BigInt(days),
+        BASIS_POINTS * denominator,
+      );
+      cursor = segmentEnd;
+    }
+    return interest;
+  }
+
+  return divideRoundHalfUp(
+    principalPaise * BigInt(annualRateBps) * BigInt(daysBetween(start, end)),
+    BASIS_POINTS * 365n,
   );
 }
 
@@ -74,17 +123,41 @@ export function generatePayoutSchedule(draft: InvestmentDraft): PayoutProjection
       dates.push(cursor);
       cursor = addMonthsPreservingEnd(cursor, months);
     }
+    const last = dates.at(-1);
+    if (!last || last.getTime() !== maturity.getTime()) dates.push(maturity);
   }
+
+  let accrualStart = parseIsoDate(draft.investmentDate);
+  const compoundedMaturity = draft.interestType === "simple"
+    ? null
+    : calculateCompoundMaturity(
+        draft.principalPaise,
+        draft.annualRateBps,
+        draft.investmentDate,
+        draft.maturityDate,
+        draft.compoundingFrequency ?? "quarterly",
+        draft.dayCountBasis ?? "actual-365",
+      );
 
   return dates.map((date, index) => {
     const dueDate = toIsoDate(date);
-    const gross = calculateInterest(
-      draft.principalPaise,
-      draft.annualRateBps,
-      draft.payoutFrequency === "on-maturity"
-        ? Math.max(1, monthsBetween(parseIsoDate(draft.investmentDate), maturity))
-        : months,
-    );
+    let gross: bigint;
+    if (draft.payoutFrequency === "on-maturity" && draft.expectedMaturityPaise !== undefined) {
+      gross = draft.expectedMaturityPaise > draft.principalPaise
+        ? draft.expectedMaturityPaise - draft.principalPaise
+        : 0n;
+    } else if (draft.payoutFrequency === "on-maturity" && compoundedMaturity !== null) {
+      gross = compoundedMaturity - draft.principalPaise;
+    } else {
+      gross = calculateInterestForDates(
+        draft.principalPaise,
+        draft.annualRateBps,
+        toIsoDate(accrualStart),
+        dueDate,
+        draft.dayCountBasis ?? "actual-365",
+      );
+    }
+    accrualStart = date;
     const expectedTds = draft.tdsApplicable
       ? calculateTDS(gross, draft.expectedTdsRateBps)
       : 0n;
@@ -99,6 +172,47 @@ export function generatePayoutSchedule(draft: InvestmentDraft): PayoutProjection
       status: "upcoming",
     };
   });
+}
+
+export function calculateCompoundMaturity(
+  principalPaise: bigint,
+  annualRateBps: number,
+  startIso: string,
+  endIso: string,
+  frequency: CompoundingFrequency = "quarterly",
+  stubBasis: DayCountBasis = "actual-365",
+) {
+  if (principalPaise < 0n) throw new Error("Principal cannot be negative");
+  if (annualRateBps < 0) throw new Error("Interest rate cannot be negative");
+  const maturity = parseIsoDate(endIso);
+  let cursor = parseIsoDate(startIso);
+  if (maturity.getTime() < cursor.getTime()) throw new Error("Maturity cannot precede investment");
+
+  const periodsPerYear = compoundsPerYear(frequency);
+  const periodMonths = 12 / periodsPerYear;
+  let amount = principalPaise;
+  let periods = 0;
+  while (periods < 1_200) {
+    const next = addMonthsPreservingEnd(cursor, periodMonths);
+    if (next.getTime() > maturity.getTime()) break;
+    amount += divideRoundHalfUp(
+      amount * BigInt(annualRateBps),
+      BASIS_POINTS * BigInt(periodsPerYear),
+    );
+    cursor = next;
+    periods += 1;
+  }
+
+  if (cursor.getTime() < maturity.getTime()) {
+    amount += calculateInterestForDates(
+      amount,
+      annualRateBps,
+      toIsoDate(cursor),
+      endIso,
+      stubBasis,
+    );
+  }
+  return amount;
 }
 
 export function calculateMaturity(
@@ -148,6 +262,16 @@ function frequencyMonths(frequency: PayoutFrequency) {
   return values[frequency];
 }
 
+function compoundsPerYear(frequency: CompoundingFrequency) {
+  const values: Record<CompoundingFrequency, number> = {
+    monthly: 12,
+    quarterly: 4,
+    "half-yearly": 2,
+    yearly: 1,
+  };
+  return values[frequency];
+}
+
 function parseIsoDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day));
@@ -183,9 +307,20 @@ function addMonthsPreservingEnd(value: Date, months: number) {
   ));
 }
 
-function monthsBetween(start: Date, end: Date) {
+function daysBetween(start: Date, end: Date) {
+  return Math.round((end.getTime() - start.getTime()) / 86_400_000);
+}
+
+function days360(start: Date, end: Date) {
+  const startDay = Math.min(start.getUTCDate(), 30);
+  const endDay = startDay === 30 ? Math.min(end.getUTCDate(), 30) : end.getUTCDate();
   return (
-    (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
-    end.getUTCMonth() - start.getUTCMonth()
+    (end.getUTCFullYear() - start.getUTCFullYear()) * 360 +
+    (end.getUTCMonth() - start.getUTCMonth()) * 30 +
+    endDay - startDay
   );
+}
+
+function isLeapYear(year: number) {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
 }

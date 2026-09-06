@@ -17,6 +17,8 @@ export type PayoutFrequency =
   | "custom";
 
 export type InterestType = "simple" | "compound" | "cumulative";
+export type CompoundingFrequency = "monthly" | "quarterly" | "half-yearly" | "yearly";
+export type DayCountBasis = "actual-365" | "actual-actual" | "30-360";
 
 export type PayoutStatus =
   | "upcoming"
@@ -38,6 +40,8 @@ export interface InvestmentDraft {
   principalPaise: bigint;
   annualRateBps: number;
   interestType: InterestType;
+  compoundingFrequency: CompoundingFrequency;
+  dayCountBasis: DayCountBasis;
   payoutFrequency: PayoutFrequency;
   firstPayoutDate: string;
   maturityDate: string;
@@ -98,4 +102,13 @@ export interface PortfolioInvestment extends InvestmentDraft {
   documents: InvestmentDocument[];
   forms: InvestmentForm[];
   activity: InvestmentActivity[];
+  panLinked?: boolean;
+  declarationApplicable?: boolean;
+  bankName?: string;
+  accountLast4?: string;
+  paymentMode?: string;
+  nominee?: string;
+  brokerPlatform?: string;
+  advisorName?: string;
+  notes?: string;
 }

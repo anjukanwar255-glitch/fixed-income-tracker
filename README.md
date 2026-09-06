@@ -1,93 +1,64 @@
-# vinext-starter
+# Fixed Income Tracker
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+A private fixed-income portfolio PWA built with Vinext/React on Cloudflare Sites. Cloudflare D1 stores portfolio records, Firebase provides authentication and private document/backup storage, and Razorpay handles recurring subscriptions.
 
-## Prerequisites
+## Product behaviour
 
-- Node.js `>=22.13.0`
-- Linux with `flock`, `curl`, and GNU `timeout`
+- Firebase Phone OTP plus optional Google sign-in
+- one 7-day trial per keyed, pseudonymous verified identity
+- ₹99 monthly, ₹500 every six months, or ₹800 yearly recurring plans
+- FD, corporate FD, bond, NCD, debenture and government-security records
+- exact-date interest accrual, configurable day-count and compounding frequency
+- monthly, quarterly, half-yearly, yearly and maturity payout schedules
+- payout/TDS reconciliation, maturity reminders, edit/archive/mature controls
+- Indian bank dropdown with manual entry
+- private PDF/JPG/JPEG/PNG uploads with signature, structure, size and active-PDF checks
+- AES-GCM encrypted daily Firebase recovery snapshots, 35-day retention and idempotent restore
+- JSON/CSV export, subscription cancellation and account deletion
 
-## Sites Lifecycle
+## Local development
 
-The Sites lifecycle CLI runs the locked dependency install before returning this checkout. Edit the source under `app/`, then checkpoint when a coherent milestone is ready to inspect or share. The remote Sites builder runs `npm run build` against the pushed commit. Do not repeat install or build as a normal pre-checkpoint step.
+Requirements: Node.js 22.13 or newer.
 
-This starter does not use `wrangler.jsonc`.
-
-`install:ci` is intentionally a single, non-retrying `npm ci`. It refuses a concurrent install for the same project, consumes a matching image-seeded npm cache with `--prefer-offline` while retaining registry fallback for a missing cache object, otherwise downloads and verifies the complete vinext tarball recorded in `package-lock.json`, limits npm to one socket, and terminates a stalled install. `build` applies a short timeout. These helpers target Linux and use GNU `timeout`; they are not native macOS scripts.
-
-Scripts that need writable project-scoped home, npm, XDG, and temporary paths use `scripts/sites-env.sh`. The `dev` and `start` scripts honor the caller's runtime environment and keep Wrangler logs inside the checkout. The generated `.sites-runtime/` directory is disposable and ignored by Git.
-
-## Included Shape
-
-- edit site code under `app/`
-- `app/chatgpt-auth.ts` provides optional dispatch-owned ChatGPT sign-in helpers
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/index.ts` reads the D1 binding from the Cloudflare Worker environment
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from `oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive `oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty `name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by `oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm ci
+npm run db:migrate:local
+npm run dev
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+The local app is served at `http://localhost:5173`. Add `localhost` to Firebase Authentication authorized domains and use a Firebase test phone number to avoid sending real SMS.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs optional or required ChatGPT sign-in:
+Useful checks:
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send anonymous visitors through Sign in with ChatGPT.
-- In a Server Component, start sign-in with `<a href={chatGPTSignInPath(returnTo)} target="_top">`. The auth helper module is server-only; do not import it into a Client Component.
-- Do not use `fetch`, XHR, a client-side router, or a framework link that can prefetch the sign-in route. SIWC must start as a top-level navigation.
-- Never request the AuthAPI authorization endpoint directly. The dispatch-owned `/signin-with-chatgpt` route must start the SIWC flow.
-- Use `chatGPTSignOutPath(returnTo)` for browser sign-out links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because they depend on per-request identity headers.
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run db:generate
+```
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the OAuth cookies, and identity header injection. Do not implement app routes for those reserved paths. Routes that do not import and call the helper remain anonymous-compatible.
+`db/schema.ts` is the source of truth. Generated migrations in `drizzle/` are packaged into the Sites deployment. Firebase web configuration in `lib/firebase-config.ts` is public by design; never commit server secrets.
 
-SIWC establishes identity only; it does not prove workspace membership. Use the Sites hosting platform's access policy controls for workspace-wide restrictions, or enforce explicit server-side membership or allowlist checks.
+## Runtime configuration
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write actions tied to the current ChatGPT user. Leave public content anonymous.
+Set these as encrypted runtime secrets/variables in the hosting environment:
 
-## Diagnostic Commands
+- `TRIAL_HASH_SECRET` — at least 24 random characters
+- `BACKUP_ENCRYPTION_KEY` — base64-encoded 32 random bytes
+- `BACKUP_KEY_VERSION` — for example `v1`
+- `BACKUP_PREVIOUS_ENCRYPTION_KEY` and `BACKUP_PREVIOUS_KEY_VERSION` — temporarily retain during key rotation
+- `RAZORPAY_KEY_ID`
+- `RAZORPAY_KEY_SECRET`
+- `RAZORPAY_WEBHOOK_SECRET`
+- `RAZORPAY_PLAN_MONTHLY`
+- `RAZORPAY_PLAN_HALF_YEARLY`
+- `RAZORPAY_PLAN_YEARLY`
+- `FIREBASE_APPCHECK_SITE_KEY` — public reCAPTCHA Enterprise site key, supplied through the hosting runtime
 
-- `npm run install:ci`: perform the one bounded lockfile install
-- `npm run dev`: start the Vite/Vinext development server
-- `npm run build`: build the deployable Sites artifact
-- `npm run start`: start the built Vinext application
-- `npm test`: build and verify the rendered development-preview metadata
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+See [docs/production-launch.md](docs/production-launch.md) before enabling public registration.
 
-Use build commands for targeted diagnosis after a remote failure, not as part of the normal checkpoint path.
+## Architecture notes
 
-The timeout defaults can be overridden for a controlled canary with `SITES_INSTALL_TIMEOUT`, `SITES_INSTALL_KILL_AFTER`, `SITES_BUILD_TIMEOUT`, and `SITES_BUILD_KILL_AFTER`. A timeout fails the command; the helpers never retry an unchanged install or build.
+Every API request derives its owner from a verified Firebase ID token; client-supplied user IDs are never trusted. The Worker validates JWT signatures against Google's public signing keys, so no Firebase service-account key is stored. Firebase App Check starts before Authentication, and its tokens are forwarded to Storage.
 
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+Documents are served only through authenticated attachment downloads. D1 Time Travel is the full-database recovery layer; encrypted Firebase snapshots provide per-user recovery and portability without trusting restored billing state.

@@ -11,7 +11,8 @@ export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   authSubject: text("auth_subject").notNull(),
   fullName: text("full_name").notNull().default(""),
-  mobileMasked: text("mobile_masked"),
+  /** Full E.164 number, e.g. `+919876543210`. Masked at render, never logged. */
+  mobileE164: text("mobile_e164"),
   email: text("email"),
   panCiphertext: text("pan_ciphertext"),
   panMasked: text("pan_masked"),
@@ -19,6 +20,10 @@ export const users = sqliteTable("users", {
   address: text("address"),
   profilePhotoKey: text("profile_photo_key"),
   role: text("role", { enum: ["user", "support", "admin"] }).notNull().default("user"),
+  trialStartedAt: text("trial_started_at"),
+  trialEndsAt: text("trial_ends_at"),
+  termsAcceptedAt: text("terms_accepted_at"),
+  privacyAcceptedAt: text("privacy_accepted_at"),
   ...timestamps,
 }, (table) => [
   uniqueIndex("uidx_users_auth_subject").on(table.authSubject),
@@ -63,6 +68,8 @@ export const investments = sqliteTable("investments", {
   principalPaise: integer("principal_paise", { mode: "number" }).notNull(),
   interestRateBps: integer("interest_rate_bps").notNull(),
   interestType: text("interest_type").notNull(),
+  compoundingFrequency: text("compounding_frequency").notNull().default("quarterly"),
+  dayCountBasis: text("day_count_basis").notNull().default("actual-365"),
   payoutFrequency: text("payout_frequency").notNull(),
   investmentDate: text("investment_date").notNull(),
   firstPayoutDate: text("first_payout_date"),
@@ -182,6 +189,10 @@ export const documents = sqliteTable("documents", {
   objectKey: text("object_key").notNull(),
   mimeType: text("mime_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
+  storageProvider: text("storage_provider").notNull().default("firebase"),
+  sha256: text("sha256"),
+  validationStatus: text("validation_status").notNull().default("validated"),
+  validatedAt: text("validated_at"),
   expiryDate: text("expiry_date"),
   notes: text("notes"),
   version: integer("version").notNull().default(1),
@@ -189,6 +200,59 @@ export const documents = sqliteTable("documents", {
 }, (table) => [
   index("idx_documents_user_investment").on(table.userId, table.investmentId),
   index("idx_documents_user_name").on(table.userId, table.documentName),
+]);
+
+export const subscriptions = sqliteTable("subscriptions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  provider: text("provider").notNull().default("razorpay"),
+  providerSubscriptionId: text("provider_subscription_id"),
+  providerCustomerId: text("provider_customer_id"),
+  planCode: text("plan_code", { enum: ["monthly", "half-yearly", "yearly"] }).notNull(),
+  status: text("status").notNull().default("created"),
+  currentPeriodStart: text("current_period_start"),
+  currentPeriodEnd: text("current_period_end"),
+  cancelAtPeriodEnd: integer("cancel_at_period_end", { mode: "boolean" }).notNull().default(false),
+  cancelledAt: text("cancelled_at"),
+  ...timestamps,
+}, (table) => [
+  uniqueIndex("uidx_subscriptions_provider_id").on(table.providerSubscriptionId),
+  index("idx_subscriptions_user_status").on(table.userId, table.status),
+]);
+
+/** Pseudonymous one-trial claim; retained after account deletion to prevent repeated free-trial abuse. */
+export const trialClaims = sqliteTable("trial_claims", {
+  identityHash: text("identity_hash").primaryKey(),
+  originalUserId: text("original_user_id").notNull(),
+  claimedAt: text("claimed_at").notNull(),
+});
+
+export const billingEvents = sqliteTable("billing_events", {
+  id: text("id").primaryKey(),
+  provider: text("provider").notNull().default("razorpay"),
+  providerEventId: text("provider_event_id").notNull(),
+  eventType: text("event_type").notNull(),
+  providerSubscriptionId: text("provider_subscription_id"),
+  payloadSha256: text("payload_sha256").notNull(),
+  processingStatus: text("processing_status").notNull().default("processed"),
+  processedAt: text("processed_at").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("uidx_billing_events_provider_event").on(table.provider, table.providerEventId),
+  index("idx_billing_events_subscription").on(table.providerSubscriptionId),
+]);
+
+export const backupRuns = sqliteTable("backup_runs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  objectKey: text("object_key").notNull(),
+  sha256: text("sha256").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  status: text("status").notNull(),
+  failureReason: text("failure_reason"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_backup_runs_user_created").on(table.userId, table.createdAt),
 ]);
 
 export const notifications = sqliteTable("notifications", {

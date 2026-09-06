@@ -1,8 +1,10 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
-import { headers } from "next/headers";
 import { z } from "zod";
 
 import { getDb } from "@/db";
+import { authenticatedRequest } from "@/lib/firebase-auth";
+import { requireEntitlement } from "@/lib/billing";
+import { createUserBackup } from "@/lib/backups";
 import {
   activityLogs,
   investments,
@@ -33,8 +35,11 @@ const payoutConfirmation = z.object({
 });
 
 export async function POST(request: Request) {
-  const ownerId = (await headers()).get("oai-authenticated-user-id");
-  if (!ownerId) return Response.json({ error: "Authentication required" }, { status: 401 });
+  const identity = await authenticatedRequest();
+  if (!identity) return Response.json({ error: "Authentication required" }, { status: 401 });
+  const ownerId = identity.uid;
+  const paywall = await requireEntitlement(ownerId);
+  if (paywall) return paywall;
 
   const parsed = payoutConfirmation.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -119,8 +124,8 @@ export async function POST(request: Request) {
     }),
   ];
 
-  if (input.outcome === "received") {
-    operations.push(db.insert(tdsRecords).values({
+  const tdsOperation = input.outcome === "received"
+    ? db.insert(tdsRecords).values({
       id: crypto.randomUUID(),
       userId: ownerId,
       investmentId: schedule.investmentId,
@@ -134,12 +139,16 @@ export async function POST(request: Request) {
       status: "pending",
       createdAt,
       updatedAt: createdAt,
-    }));
-  }
+    })
+    : null;
 
   try {
-    await db.batch(operations);
-    return Response.json({ transactionId, status }, { status: 201 });
+    const batch = tdsOperation ? [...operations, tdsOperation] : operations;
+    await db.batch(batch as unknown as Parameters<typeof db.batch>[0]);
+    const backupWarning = await createUserBackup(identity)
+      .then(() => null)
+      .catch(() => "Payout saved, but the recovery snapshot could not be refreshed");
+    return Response.json({ transactionId, status, backupWarning }, { status: 201 });
   } catch {
     return Response.json({ error: "Payout confirmation could not be saved" }, { status: 503 });
   }

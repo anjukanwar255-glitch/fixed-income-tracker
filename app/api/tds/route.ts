@@ -1,8 +1,10 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { headers } from "next/headers";
 import { z } from "zod";
 
 import { getDb } from "@/db";
+import { authenticatedRequest } from "@/lib/firebase-auth";
+import { requireEntitlement } from "@/lib/billing";
+import { createUserBackup } from "@/lib/backups";
 import { activityLogs, payoutSchedules, payoutTransactions, tdsRecords } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +18,11 @@ const tdsVerification = z.object({
 });
 
 export async function POST(request: Request) {
-  const ownerId = (await headers()).get("oai-authenticated-user-id");
-  if (!ownerId) return Response.json({ error: "Authentication required" }, { status: 401 });
+  const identity = await authenticatedRequest();
+  if (!identity) return Response.json({ error: "Authentication required" }, { status: 401 });
+  const ownerId = identity.uid;
+  const paywall = await requireEntitlement(ownerId);
+  if (paywall) return paywall;
 
   const parsed = tdsVerification.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Please check the TDS verification details" }, { status: 400 });
@@ -81,7 +86,10 @@ export async function POST(request: Request) {
         createdAt,
       }),
     ]);
-    return Response.json({ recordId, status }, { status: 201 });
+    const backupWarning = await createUserBackup(identity)
+      .then(() => null)
+      .catch(() => "TDS verification saved, but the recovery snapshot could not be refreshed");
+    return Response.json({ recordId, status, backupWarning }, { status: 201 });
   } catch {
     return Response.json({ error: "TDS verification could not be saved" }, { status: 503 });
   }

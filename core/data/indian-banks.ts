@@ -1,0 +1,77 @@
+/**
+ * Common RBI-regulated Indian banks shown in the receiving-account picker.
+ * The manual option in the UI remains the fallback for regional, cooperative,
+ * foreign, renamed, or newly licensed banks.
+ */
+export const indianBankGroups = [
+  {
+    label: "Public sector banks",
+    banks: [
+      "State Bank of India",
+      "Bank of Baroda",
+      "Bank of India",
+      "Bank of Maharashtra",
+      "Canara Bank",
+      "Central Bank of India",
+      "Indian Bank",
+      "Indian Overseas Bank",
+      "Punjab & Sind Bank",
+      "Punjab National Bank",
+      "UCO Bank",
+      "Union Bank of India",
+    ],
+  },
+  {
+    label: "Private sector banks",
+    banks: [
+      "Axis Bank",
+      "Bandhan Bank",
+      "CSB Bank",
+      "City Union Bank",
+      "DCB Bank",
+      "Dhanlaxmi Bank",
+      "Federal Bank",
+      "HDFC Bank",
+      "ICICI Bank",
+      "IDBI Bank",
+      "IDFC FIRST Bank",
+      "IndusInd Bank",
+      "Jammu & Kashmir Bank",
+      "Karnataka Bank",
+      "Karur Vysya Bank",
+      "Kotak Mahindra Bank",
+      "Nainital Bank",
+      "RBL Bank",
+      "South Indian Bank",
+      "Tamilnad Mercantile Bank",
+      "YES Bank",
+    ],
+  },
+  {
+    label: "Small finance banks",
+    banks: [
+      "AU Small Finance Bank",
+      "Capital Small Finance Bank",
+      "Equitas Small Finance Bank",
+      "ESAF Small Finance Bank",
+      "Jana Small Finance Bank",
+      "Shivalik Small Finance Bank",
+      "slice Small Finance Bank",
+      "Suryoday Small Finance Bank",
+      "Ujjivan Small Finance Bank",
+      "Unity Small Finance Bank",
+      "Utkarsh Small Finance Bank",
+    ],
+  },
+  {
+    label: "Payments banks",
+    banks: [
+      "Airtel Payments Bank",
+      "Fino Payments Bank",
+      "India Post Payments Bank",
+      "Jio Payments Bank",
+      "NSDL Payments Bank",
+      "Paytm Payments Bank",
+    ],
+  },
+] as const;
