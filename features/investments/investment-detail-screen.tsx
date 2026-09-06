@@ -28,7 +28,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { calculateFinancialYear, calculateInterest, formatMoney, parseRupeesToPaise } from "@/core/finance/calculations";
-import { apiFetch, downloadDocument } from "@/lib/firebase-client";
+import { apiFetch, downloadDocument, uploadDocumentFile } from "@/lib/firebase-client";
 import type { PayoutProjection, PortfolioInvestment } from "@/core/models/financial";
 
 type Props = {
@@ -172,11 +172,11 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
     }
     setUploading(true);
     try {
-      const body = new FormData();
-      body.set("file", file); body.set("investmentId", investment.id);
-      body.set("documentType", isBondType(investment.type) ? "bond-document" : "investment-document");
-      body.set("financialYear", calculateFinancialYear(investment.investmentDate));
-      const response = await apiFetch("/api/documents", { method: "POST", body });
+      const response = await uploadDocumentFile(file, {
+        investmentId: investment.id,
+        documentType: isBondType(investment.type) ? "bond-document" : "investment-document",
+        financialYear: calculateFinancialYear(investment.investmentDate),
+      });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Document could not be uploaded");
       await onDataChanged(); toast.success("Document uploaded securely");

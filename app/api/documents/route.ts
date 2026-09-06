@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getDb } from "@/db";
 import { authenticatedRequest, authenticatedUser } from "@/lib/firebase-auth";
 import { deleteFirebaseObject, uploadFirebaseObject } from "@/lib/firebase-storage";
-import { validateDocumentFile } from "@/lib/file-validation";
+import { MAX_DOCUMENT_BYTES, validateDocumentFile } from "@/lib/file-validation";
 import { documents, investments } from "@/db/schema";
 import { requireEntitlement } from "@/lib/billing";
 import { createUserBackup } from "@/lib/backups";
@@ -59,23 +59,37 @@ export async function POST(request: Request) {
   const paywall = await requireEntitlement(ownerId);
   if (paywall) return paywall;
 
-  const form = await request.formData();
-  const file = form.get("file");
+  const url = new URL(request.url);
   const fields = documentFields.safeParse({
-    investmentId: String(form.get("investmentId") ?? ""),
-    documentType: String(form.get("documentType") ?? "investment-certificate"),
-    financialYear: String(form.get("financialYear") ?? ""),
+    investmentId: url.searchParams.get("investmentId") ?? "",
+    documentType: url.searchParams.get("documentType") ?? "investment-certificate",
+    financialYear: url.searchParams.get("financialYear") ?? "",
   });
   if (!fields.success) return Response.json({ error: "Please check the document details" }, { status: 400 });
   const { investmentId, documentType, financialYear } = fields.data;
 
-  if (!(file instanceof File)) {
-    return Response.json({ error: "Upload a PDF, JPG, JPEG or PNG up to 10 MB" }, { status: 400 });
+  const declaredLength = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_DOCUMENT_BYTES) {
+    return Response.json({ error: "Upload a PDF, JPG, JPEG or PNG up to 10 MB" }, { status: 413 });
   }
+
+  let documentName = "document";
+  try {
+    documentName = decodeURIComponent(request.headers.get("x-document-name") ?? "document");
+  } catch {
+    return Response.json({ error: "The document name is invalid" }, { status: 400 });
+  }
+  const bytes = await request.arrayBuffer();
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "";
 
   let validated: Awaited<ReturnType<typeof validateDocumentFile>>;
   try {
-    validated = await validateDocumentFile(file);
+    validated = await validateDocumentFile({
+      name: documentName,
+      size: bytes.byteLength,
+      type: contentType,
+      arrayBuffer: async () => bytes,
+    });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "The document is not valid" }, { status: 400 });
   }
@@ -103,12 +117,12 @@ export async function POST(request: Request) {
       id: documentId,
       userId: ownerId,
       investmentId,
-      documentName: file.name.slice(0, 180),
+      documentName: documentName.slice(0, 180),
       documentType: documentType.slice(0, 80),
       financialYear: financialYear || null,
       objectKey,
       mimeType: validated.mimeType,
-      sizeBytes: file.size,
+      sizeBytes: bytes.byteLength,
       storageProvider: "firebase",
       sha256: validated.sha256,
       validationStatus: "validated",
@@ -124,5 +138,5 @@ export async function POST(request: Request) {
   const backupWarning = await createUserBackup(identity)
     .then(() => null)
     .catch(() => "Document saved, but the recovery snapshot could not be refreshed");
-  return Response.json({ documentId, name: file.name, sha256: validated.sha256, validationStatus: "validated", backupWarning }, { status: 201 });
+  return Response.json({ documentId, name: documentName, sha256: validated.sha256, validationStatus: "validated", backupWarning }, { status: 201 });
 }

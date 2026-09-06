@@ -110,3 +110,28 @@ export async function downloadDocument(documentId: string, fileName: string): Pr
     URL.revokeObjectURL(objectUrl);
   }
 }
+
+/**
+ * Sends document bytes without multipart encoding. Vinext reserves multipart
+ * POST requests for React server actions, whereas a binary body is routed to
+ * the API handler normally. The server still detects the real file signature
+ * and treats every value below as untrusted metadata.
+ */
+export function uploadDocumentFile(
+  file: File,
+  metadata: { investmentId: string; documentType: string; financialYear?: string },
+) {
+  const query = new URLSearchParams({
+    investmentId: metadata.investmentId,
+    documentType: metadata.documentType,
+    financialYear: metadata.financialYear ?? "",
+  });
+  return apiFetch(`/api/documents?${query}`, {
+    method: "POST",
+    headers: {
+      "content-type": file.type || "application/octet-stream",
+      "x-document-name": encodeURIComponent(file.name),
+    },
+    body: file,
+  });
+}

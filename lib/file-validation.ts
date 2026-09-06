@@ -1,4 +1,4 @@
-const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 
 const detectedTypes = {
   pdf: { mimeType: "application/pdf", extension: "pdf" },
@@ -13,7 +13,9 @@ export type ValidatedDocument = {
   sha256: string;
 };
 
-export async function validateDocumentFile(file: File): Promise<ValidatedDocument> {
+type DocumentFile = Pick<File, "name" | "size" | "type" | "arrayBuffer">;
+
+export async function validateDocumentFile(file: DocumentFile): Promise<ValidatedDocument> {
   if (file.size <= 0 || file.size > MAX_DOCUMENT_BYTES) {
     throw new Error("Upload a non-empty PDF, JPG, JPEG or PNG up to 10 MB");
   }

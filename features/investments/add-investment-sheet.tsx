@@ -35,7 +35,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { indianBankGroups } from "@/core/data/indian-banks";
 import { formatMoney, generatePayoutSchedule, parseRupeesToPaise } from "@/core/finance/calculations";
-import { apiFetch } from "@/lib/firebase-client";
+import { apiFetch, uploadDocumentFile } from "@/lib/firebase-client";
 import type { CompoundingFrequency, DayCountBasis, InterestType, InvestmentType, PayoutFrequency, PortfolioInvestment } from "@/core/models/financial";
 
 type Props = {
@@ -391,12 +391,11 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
     const result = await response.json() as { investmentId?: string; scheduleCount?: number; warning?: string | null; error?: string };
     if (!response.ok || !result.investmentId) throw new Error(result.error ?? "Investment could not be saved");
     if (file) {
-      const body = new FormData();
-      body.set("file", file);
-      body.set("investmentId", result.investmentId);
-      body.set("documentType", isBondType(investment.type) ? "bond-certificate" : "investment-certificate");
-      body.set("financialYear", investment.schedule[0]?.financialYear ?? "");
-      const upload = await apiFetch("/api/documents", { method: "POST", body });
+      const upload = await uploadDocumentFile(file, {
+        investmentId: result.investmentId,
+        documentType: isBondType(investment.type) ? "bond-certificate" : "investment-certificate",
+        financialYear: investment.schedule[0]?.financialYear ?? "",
+      });
       if (!upload.ok) toast.warning("Investment saved, but the document needs to be uploaded again");
     }
     return { investmentId: result.investmentId, scheduleCount: result.scheduleCount ?? investment.schedule.length, warning: result.warning };
