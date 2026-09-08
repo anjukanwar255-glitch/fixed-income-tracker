@@ -187,7 +187,7 @@ export function FixedIncomeApp() {
   return (
     <div className="app-shell">
       <aside className="desktop-sidebar">
-        <div className="sidebar-brand"><span className="brand-mark"><Landmark /></span><span><b>Fixed Income</b><small>Tracker</small></span></div>
+        <div className="sidebar-brand"><span className="brand-mark"><Landmark /></span><span><b>Portfolio</b><small>Fixed income</small></span></div>
         <nav aria-label="Primary navigation">
           {navItems.map(({ value, label, icon: Icon }) => (
             <button data-active={!selected && screen === value} key={value} onClick={() => navigate(value)}><Icon /><span>{label}</span></button>
@@ -200,7 +200,7 @@ export function FixedIncomeApp() {
       <div className="app-main">
         <header className="topbar">
           <button className="mobile-menu" aria-label="Open navigation"><Menu /></button>
-          <div className="mobile-brand"><span className="brand-mark mini"><Landmark /></span><b>Fixed Income</b></div>
+          <div className="mobile-brand"><span className="brand-mark mini"><Landmark /></span><b>Portfolio</b></div>
           <div className="topbar-actions"><span className="cloud-status">{billing.entitlement.state === "trial" ? `${billing.entitlement.daysRemaining} trial days left` : "Premium active"}</span><div className="notification-wrap"><button className="notification-button" aria-label={`${reminders.length} upcoming reminders`} aria-expanded={reminderOpen} onClick={() => setReminderOpen((value) => !value)}><Bell />{reminders.length > 0 && <i />}</button>{reminderOpen && <div className="notification-panel"><header><b>Upcoming reminders</b><small>Next 30 days</small></header>{reminders.length ? reminders.slice(0, 8).map((reminder) => <button key={reminder.id} onClick={() => { setSelectedInvestmentId(reminder.investmentId); setReminderOpen(false); }}><b>{reminder.title}</b><small>{reminder.body}</small></button>) : <p>No payout or maturity is due in the next 30 days.</p>}</div>}</div><button className="topbar-avatar" onClick={() => navigate("profile")}>{displayName.slice(0, 1).toUpperCase()}</button></div>
         </header>
 
