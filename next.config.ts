@@ -36,22 +36,15 @@ const securityHeaders = [
   { key: "content-security-policy", value: contentSecurityPolicy },
 ];
 
-/**
- * App Hosting always keeps the generated `*.hosted.app` domain (and the Cloud
- * Run URL behind it) reachable alongside any custom domain — unlike the
- * previous Cloudflare setup, there is no way to turn it off. The app must
- * only be reachable at `portfolio.cartranspro.com`, so both alternate origins
- * redirect there.
- *
- * This uses `redirects()`, resolved by Next's own routing at build time,
- * rather than middleware — Firebase documents the Next.js Proxy as still
- * having rough edges on App Hosting, and this must not depend on it.
- */
-const PRIMARY_HOST = "portfolio.cartranspro.com";
-const alternateHosts = [
-  "fixed-income-tracker--portfolio-7c0d0.asia-southeast1.hosted.app",
-  "fixed-income-tracker-102035937741.asia-southeast1.run.app",
-];
+// Primary-domain enforcement was attempted here via redirects()'s Host-header
+// matching and reverted: on App Hosting, the Next.js server sees the internal
+// Cloud Run hostname as the request Host regardless of which public domain
+// the client used, so the "redirect away from the alternate host" rule
+// matched every request — including ones to the real custom domain — and
+// portfolio.cartranspro.com redirected to itself in a loop. Confirmed live
+// (curl -L hit curl's 50-redirect cap). Needs a header that survives the
+// proxy, such as x-forwarded-host, verified against real request headers
+// before it goes back in. See docs/firebase-migration-plan.md.
 
 const nextConfig: NextConfig = {
   async headers() {
@@ -62,14 +55,6 @@ const nextConfig: NextConfig = {
         headers: [{ key: "cache-control", value: "no-store, max-age=0" }],
       },
     ];
-  },
-  async redirects() {
-    return alternateHosts.map((host) => ({
-      source: "/:path*",
-      has: [{ type: "host" as const, value: host }],
-      destination: `https://${PRIMARY_HOST}/:path*`,
-      permanent: true,
-    }));
   },
 };
 
