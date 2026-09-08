@@ -127,14 +127,20 @@ Still outstanding:
 - Razorpay is unconfigured (its variables are commented out of
   `apphosting.yaml`), so billing is disabled and checkout will fail; the app
   degrades to trial-only rather than erroring.
-- The old OpenAI Sites deployment is still live at the old `*.chatgpt.site`
-  hostname, and cannot be removed from here: it belongs to a platform with no
-  CLI or API available in this workspace, and `.openai/hosting.json` was
-  deleted during the migration. It answers 401 to anyone without an OpenAI
-  account, so it exposes nothing; it has to be deleted from wherever the site
-  was originally created. Its entry in Firebase Authentication's authorised
-  domains should be removed at the same time, not before — removing it earlier
-  breaks sign-in on a deployment that is still serving.
+The old OpenAI Sites deployment is retired. Its hostname now 307s to a
+`retired-…` URL that itself answers 401, and
+`fixed-income-tracker.cartranssolutioncomp.chatgpt.site` has been removed from
+Firebase Authentication's authorised domains — so even if something were still
+served there, nobody could sign in. Both were needed: the old deployment ran
+against its own Cloudflare D1 database, so anything entered there would have
+been invisible to this app.
+
+Retiring it had to be done from the platform that created it; there is no CLI
+or API for it in this workspace, and `.openai/hosting.json` was deleted during
+the migration.
+
+Note that `localhost` was removed from the authorised domains at the same
+time. Local development needs it back before sign-in will work there.
 
 ## What actually couples the app to Cloudflare
 
