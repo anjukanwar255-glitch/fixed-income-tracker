@@ -44,14 +44,19 @@ env:
     availability:
       - RUNTIME
 
+  # The reCAPTCHA Enterprise site key, registered against the `portfolio` web
+  # app in App Check. Public by design: it is served to every browser by
+  # /api/public/firebase-config, and authorisation still comes from
+  # Authentication and the App Check token itself.
+  - variable: FIREBASE_APPCHECK_SITE_KEY
+    value: 6LewU7AtAAAAAO6ukUrHjcEb4CPd70nmgWfxcff0
+    availability:
+      - RUNTIME
+
   # Not yet configured — add back once a value exists:
   #   firebase apphosting:secrets:set razorpay-key-secret
   #   firebase apphosting:secrets:set razorpay-webhook-secret
   #
-  # - variable: FIREBASE_APPCHECK_SITE_KEY
-  #   value: "<reCAPTCHA Enterprise site key>"
-  #   availability:
-  #     - RUNTIME
   # - variable: RAZORPAY_KEY_ID
   #   value: "<Razorpay key id>"
   #   availability:
