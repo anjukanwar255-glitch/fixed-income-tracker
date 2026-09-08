@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Landmark, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -22,8 +22,8 @@ type Props = {
 
 /**
  * Shown once, after the first successful sign-in, while `users.full_name` is
- * still empty. Only the name is required — every other field can be filled in
- * later from Profile, so a new investor reaches their dashboard quickly.
+ * still empty. Every field is required: these details label TDS reconciliation
+ * and reports, and collecting them later turned out to mean not at all.
  */
 export function AccountSetup({ phoneNumber, onComplete }: Props) {
   const [fullName, setFullName] = useState("");
@@ -33,6 +33,23 @@ export function AccountSetup({ phoneNumber, onComplete }: Props) {
   const [saving, setSaving] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [canRestore, setCanRestore] = useState(false);
+
+  /**
+   * Recovery is only offered when this account actually has a snapshot to
+   * recover from — someone signing up for the first time has nothing to
+   * restore, and offering it invites them to click something that can only
+   * fail. Failure is silent for the same reason: a broken probe should hide
+   * the option, not surface an error on a first-run screen.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/api/backups")
+      .then((response) => (response.ok ? response.json() as Promise<{ restorable?: boolean }> : null))
+      .then((status) => { if (!cancelled && status?.restorable) setCanRestore(true); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
 
   const save = async () => {
     if (fullName.trim().length < 2) {
@@ -176,8 +193,12 @@ export function AccountSetup({ phoneNumber, onComplete }: Props) {
           <Button size="lg" className="w-full" disabled={saving || !acceptedTerms} onClick={() => void save()}>
             {saving ? "Saving…" : "Continue to dashboard"}
           </Button>
-          <Button variant="outline" className="w-full" disabled={saving} onClick={() => void restoreBackup()}>Restore encrypted backup</Button>
-          <p className="auth-provider-note">Use recovery only if you previously had an account and its records are missing.</p>
+          {canRestore && (
+            <>
+              <Button variant="outline" className="w-full" disabled={saving} onClick={() => void restoreBackup()}>Restore encrypted backup</Button>
+              <p className="auth-provider-note">This number had an account before. Recovery restores its records without overwriting anything newer.</p>
+            </>
+          )}
         </div>
 
         <div className="auth-security">

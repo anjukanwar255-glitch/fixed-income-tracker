@@ -18,7 +18,7 @@ import {
   userDoc,
 } from "@/db";
 import type { AuthenticatedRequest } from "@/lib/firebase-auth";
-import { deleteFirebaseObject, downloadFirebaseObject, uploadFirebaseObject } from "@/lib/firebase-storage";
+import { deleteFirebaseObject, downloadFirebaseObject, firebaseObjectExists, uploadFirebaseObject } from "@/lib/firebase-storage";
 
 const BACKUP_FORMAT_VERSION = 1;
 
@@ -105,6 +105,20 @@ export async function readLatestUserBackup(identity: AuthenticatedRequest): Prom
 
 export async function latestBackupStatus(ownerId: string) {
   return firstDoc(backupRuns(ownerId).orderBy("createdAt", "desc"));
+}
+
+/**
+ * Whether this account has a snapshot it could actually restore from.
+ *
+ * Deliberately probes Firebase Storage rather than the `backupRuns` records.
+ * Recovery matters precisely when the Firestore side is missing, and those
+ * records live under `users/{uid}` — the subtree that would be gone. The
+ * encrypted object in Storage is what survives, so it is the only honest
+ * signal that recovery would find anything.
+ */
+export async function hasRestorableBackup(identity: AuthenticatedRequest) {
+  if (!isBackupConfigured()) return false;
+  return firebaseObjectExists(identity.token, `users/${identity.uid}/backups/latest.enc`, identity.appCheckToken);
 }
 
 export async function collectUserData(ownerId: string) {

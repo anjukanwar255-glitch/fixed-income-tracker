@@ -1,4 +1,4 @@
-import { createUserBackup, isBackupConfigured, latestBackupStatus, readLatestUserBackup } from "@/lib/backups";
+import { createUserBackup, hasRestorableBackup, isBackupConfigured, latestBackupStatus, readLatestUserBackup } from "@/lib/backups";
 import { authenticatedRequest, hasRecentAuthentication } from "@/lib/firebase-auth";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -7,9 +7,15 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const identity = await authenticatedRequest();
   if (!identity) return Response.json({ error: "Authentication required" }, { status: 401 });
-  const latest = await latestBackupStatus(identity.uid);
+  const [latest, restorable] = await Promise.all([
+    latestBackupStatus(identity.uid),
+    hasRestorableBackup(identity),
+  ]);
   return Response.json({
     configured: isBackupConfigured(),
+    // Whether a snapshot exists in Storage to restore from, which account
+    // setup uses to decide whether offering recovery makes any sense.
+    restorable,
     latest: latest ? {
       createdAt: latest.createdAt,
       status: latest.status,
