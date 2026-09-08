@@ -1,16 +1,14 @@
 # Firebase App Hosting runtime configuration.
 #
 # Secret-valued entries resolve from Cloud Secret Manager at deploy time and
-# are never stored in this file. Create each one before the first deploy:
+# are never stored in this file.
 #
-#   firebase apphosting:secrets:set backup-encryption-key
-#   firebase apphosting:secrets:set trial-hash-secret
-#   firebase apphosting:secrets:set razorpay-key-secret
-#   firebase apphosting:secrets:set razorpay-webhook-secret
-#
-# Values marked `value:` are not secret: the Razorpay key id and plan ids are
-# sent to the browser during checkout, and the App Check site key is public by
-# design.
+# A variable that has no real value yet is left out of this file entirely,
+# rather than declared with `value: ""` — App Hosting's server-side schema
+# rejects an empty string as invalid ("apphosting.yaml is not formatted
+# properly"), and an omitted variable is simply `undefined` in
+# `process.env`, which every field in lib/env.ts already treats as "this
+# feature is not configured".
 
 runConfig:
   cpu: 1
@@ -30,8 +28,8 @@ env:
     availability:
       - RUNTIME
 
-  # Set these two only while rotating the backup key, and keep them until every
-  # active account has produced a snapshot under the new key.
+  # Set these two only while rotating the backup key, and keep them until
+  # every active account has produced a snapshot under the new key.
   # - variable: BACKUP_PREVIOUS_ENCRYPTION_KEY
   #   secret: backup-previous-encryption-key
   #   availability:
@@ -46,37 +44,35 @@ env:
     availability:
       - RUNTIME
 
-  - variable: FIREBASE_APPCHECK_SITE_KEY
-    value: ""
-    availability:
-      - RUNTIME
-
-  - variable: RAZORPAY_KEY_ID
-    value: ""
-    availability:
-      - RUNTIME
-
-  - variable: RAZORPAY_KEY_SECRET
-    secret: razorpay-key-secret
-    availability:
-      - RUNTIME
-
-  - variable: RAZORPAY_WEBHOOK_SECRET
-    secret: razorpay-webhook-secret
-    availability:
-      - RUNTIME
-
-  - variable: RAZORPAY_PLAN_MONTHLY
-    value: ""
-    availability:
-      - RUNTIME
-
-  - variable: RAZORPAY_PLAN_HALF_YEARLY
-    value: ""
-    availability:
-      - RUNTIME
-
-  - variable: RAZORPAY_PLAN_YEARLY
-    value: ""
-    availability:
-      - RUNTIME
+  # Not yet configured — add back once a value exists:
+  #   firebase apphosting:secrets:set razorpay-key-secret
+  #   firebase apphosting:secrets:set razorpay-webhook-secret
+  #
+  # - variable: FIREBASE_APPCHECK_SITE_KEY
+  #   value: "<reCAPTCHA Enterprise site key>"
+  #   availability:
+  #     - RUNTIME
+  # - variable: RAZORPAY_KEY_ID
+  #   value: "<Razorpay key id>"
+  #   availability:
+  #     - RUNTIME
+  # - variable: RAZORPAY_KEY_SECRET
+  #   secret: razorpay-key-secret
+  #   availability:
+  #     - RUNTIME
+  # - variable: RAZORPAY_WEBHOOK_SECRET
+  #   secret: razorpay-webhook-secret
+  #   availability:
+  #     - RUNTIME
+  # - variable: RAZORPAY_PLAN_MONTHLY
+  #   value: "<Razorpay monthly plan id>"
+  #   availability:
+  #     - RUNTIME
+  # - variable: RAZORPAY_PLAN_HALF_YEARLY
+  #   value: "<Razorpay half-yearly plan id>"
+  #   availability:
+  #     - RUNTIME
+  # - variable: RAZORPAY_PLAN_YEARLY
+  #   value: "<Razorpay yearly plan id>"
+  #   availability:
+  #     - RUNTIME
