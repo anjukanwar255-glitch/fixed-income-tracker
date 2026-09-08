@@ -86,7 +86,7 @@ export function AccountSetup({ phoneNumber, onComplete }: Props) {
       <section className="auth-card setup-card" aria-labelledby="setup-title">
         <div className="auth-brand">
           <span className="brand-mark"><Landmark aria-hidden="true" /></span>
-          <span>Fixed Income Tracker</span>
+          <span>Portfolio</span>
         </div>
 
         <div className="auth-heading">

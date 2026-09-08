@@ -33,9 +33,62 @@ Applied so far, all type-checking clean:
   built production server and assert the rendered page, the security headers
   and the no-store rule on API responses.
 
-Still outstanding: nothing has been deployed, because `firebase login` has not
-been run in this workspace. Firestore rules and indexes have not been pushed,
-no App Hosting backend exists yet, and the domain is not attached.
+Deployed and verified live:
+
+- Firestore rules and 17 composite indexes, pushed with `firebase deploy
+  --only firestore`.
+- App Hosting backend `fixed-income-tracker` in `asia-southeast1` (closest
+  supported region to the Firestore database's `asia-south1`/Mumbai location;
+  App Hosting does not support Mumbai directly).
+- The app itself, deployed from local source with `firebase deploy --only
+  apphosting:fixed-income-tracker` — no GitHub connection was needed. Confirmed
+  working end to end: homepage renders, `/api/investments` 401s unauthenticated,
+  all security headers and CSP present.
+- The custom domain `portfolio.cartranspro.com`, DNS-verified and serving over
+  HTTPS with a Google-managed certificate.
+- `BACKUP_ENCRYPTION_KEY` and `TRIAL_HASH_SECRET`, generated and stored in
+  Secret Manager.
+
+A hard-won lesson, recorded so it isn't rediscovered: **App Hosting's
+server-side schema validation rejects `value: ""` in `apphosting.yaml`**,
+failing the entire file with a generic "not formatted properly" error that
+gives no field-level detail. It parses as valid YAML and matches every
+documented field shape, so this can only be found by bisection against
+`firebase apphosting:builds:get <backend> <buildId>` (a build failure here
+takes about 40 seconds, not the many minutes a real build takes — that gap is
+itself a symptom worth recognizing). The fix: a variable with no real value
+yet is left out of `apphosting.yaml` entirely rather than declared empty;
+omitted is `undefined` in `process.env`, which `lib/env.ts` already treats as
+"not configured".
+
+Also recorded because it reverses something this document said earlier:
+**the Cloudflare primary-domain redirect was not made obsolete by this
+migration.** App Hosting always keeps its generated `*.hosted.app` domain (and
+the Cloud Run URL behind it) reachable alongside a custom domain — there is no
+setting to turn either off, unlike Cloudflare Sites where attaching a custom
+domain could supersede the platform one. The equivalent enforcement is now in
+`next.config.ts`'s `redirects()`, matched on the `Host` header via `has:
+[{ type: "host", value: ... }]`, rather than in middleware — evaluated by
+Next's own routing layer, not the Proxy Firebase flags as still rough around
+the edges. Covered by three tests in `tests/rendered-html.test.mjs` — note
+that exercising a Host-based redirect needs `node:http` directly, since the
+Fetch API treats `Host` as a forbidden header and silently drops any attempt
+to set it, which reads as a mysterious 404 rather than an error.
+
+Still outstanding:
+
+- App Check has no site key yet (`FIREBASE_APPCHECK_SITE_KEY` is unset), and
+  the client hard-blocks the entire app behind App Check initialization —
+  every visitor sees "Security check unavailable" until a reCAPTCHA Enterprise
+  key is created and registered. Both steps are Console-only; there is no CLI
+  path for either.
+- Razorpay is unconfigured (three variables are commented out of
+  `apphosting.yaml`), so billing is disabled and checkout will fail; the app
+  degrades to trial-only rather than erroring.
+- The old OpenAI Sites deployment is still live at the old
+  `*.chatgpt.site` hostname. Left running deliberately as a fallback until the
+  Firebase deployment was confirmed working end to end; now that it is, it can
+  be decommissioned.
 
 ## What actually couples the app to Cloudflare
 

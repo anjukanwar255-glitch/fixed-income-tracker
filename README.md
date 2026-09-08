@@ -1,4 +1,4 @@
-# Fixed Income Tracker
+# Portfolio
 
 A private fixed-income portfolio PWA built with Next.js on Firebase App Hosting. Cloud Firestore stores portfolio records, Firebase provides authentication and private document/backup storage, and Razorpay handles recurring subscriptions.
 

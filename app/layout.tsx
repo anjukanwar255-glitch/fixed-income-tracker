@@ -3,14 +3,14 @@ import { PwaRegistration } from "@/features/app/pwa";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fixed Income Tracker",
-  applicationName: "Fixed Income Tracker",
+  title: "Portfolio",
+  applicationName: "Portfolio",
   description: "Track fixed deposits, bonds, interest payouts, TDS credit, forms and maturity in one secure ledger.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Income Tracker",
+    title: "Portfolio",
   },
   formatDetection: { telephone: false },
   icons: {

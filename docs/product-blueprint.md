@@ -1,4 +1,4 @@
-# Fixed Income Tracker — Product Blueprint
+# Portfolio — Product Blueprint
 
 ## Product boundary
 

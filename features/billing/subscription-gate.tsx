@@ -51,7 +51,7 @@ export function SubscriptionGate({ entitlement, plans, displayName, email, phone
       const checkout = new window.Razorpay!({
         key: payload.keyId,
         subscription_id: payload.subscriptionId,
-        name: "Fixed Income Tracker",
+        name: "Portfolio",
         description: `${payload.plan?.label ?? "Premium"} subscription`,
         prefill: { name: displayName, email: email ?? undefined, contact: phoneNumber ?? undefined },
         notes: { plan_code: planCode },
@@ -97,7 +97,7 @@ export function SubscriptionGate({ entitlement, plans, displayName, email, phone
   return (
     <main className="subscription-shell">
       <section className="subscription-card">
-        <div className="auth-brand"><span className="brand-mark"><Landmark aria-hidden="true" /></span><span>Fixed Income Tracker</span></div>
+        <div className="auth-brand"><span className="brand-mark"><Landmark aria-hidden="true" /></span><span>Portfolio</span></div>
         <div className="subscription-heading">
           <span className="eyebrow"><LockKeyhole aria-hidden="true" /> Trial complete</span>
           <h1>Keep your portfolio protected and up to date</h1>

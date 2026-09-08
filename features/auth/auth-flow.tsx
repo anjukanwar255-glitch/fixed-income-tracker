@@ -249,7 +249,7 @@ export function AuthFlow() {
       <section className="auth-card" aria-labelledby="auth-title">
         <div className="auth-brand">
           <span className="brand-mark"><Landmark aria-hidden="true" /></span>
-          <span>Fixed Income Tracker</span>
+          <span>Portfolio</span>
         </div>
 
         {step === "phone" ? (

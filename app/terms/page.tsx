@@ -1,7 +1,7 @@
 import { LegalPage } from "@/components/legal-page";
 
 export default function TermsPage() {
-  return <LegalPage title="Terms of Use" intro="These terms apply when you create an account or use Fixed Income Tracker.">
+  return <LegalPage title="Terms of Use" intro="These terms apply when you create an account or use Portfolio.">
     <h2>Tracker, not financial advice</h2><p>The app records information supplied by you and produces estimates. It does not execute investments, guarantee returns, verify an issuer, file taxes or provide investment, legal or tax advice. Always compare calculated values with the issuer&apos;s certificate and official tax records.</p>
     <h2>Free trial and subscription</h2><p>A new account receives one 7-day trial. Continued access requires a recurring plan: ₹99 monthly, ₹500 every six months or ₹800 yearly. The billing frequency, amount, taxes if applicable and renewal mandate are shown in Razorpay Checkout before authorisation.</p>
     <h2>Your responsibilities</h2><p>Keep your phone and account secure, enter accurate information, upload only documents you are authorised to hold, and report suspected unauthorised access promptly. Do not upload executable, scripted or unlawful content.</p>

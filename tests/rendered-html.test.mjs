@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { after, before } from "node:test";
 import { spawn } from "node:child_process";
+import http from "node:http";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -60,7 +61,7 @@ test("renders the production app metadata and install manifest", async () => {
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
-  assert.match(html, /<title>Fixed Income Tracker<\/title>/i);
+  assert.match(html, /<title>Portfolio<\/title>/i);
   assert.match(html, /<link[^>]+rel=["']manifest["'][^>]+href=["']\/manifest\.webmanifest["']/i);
 });
 
@@ -84,4 +85,47 @@ test("API responses are never cached", async () => {
 
   assert.equal(response.status, 401);
   assert.match(response.headers.get("cache-control") ?? "", /no-store/);
+});
+
+// The Fetch API treats `Host` as a forbidden header and silently drops any
+// attempt to set it, so exercising the redirect — which matches on the Host
+// header — needs the low-level http client instead.
+function requestWithHost(path, host) {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      { hostname: "127.0.0.1", port, path, headers: { host, accept: "text/html" } },
+      (response) => {
+        response.resume();
+        resolve(response);
+      },
+    );
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+const PRIMARY_HOST = "portfolio.cartranspro.com";
+// App Hosting always keeps its generated domain and the underlying Cloud Run
+// URL reachable alongside a custom domain — unlike the previous Cloudflare
+// setup, there is no way to turn either off — so the app must redirect both.
+const alternateHosts = [
+  "fixed-income-tracker--portfolio-7c0d0.asia-southeast1.hosted.app",
+  "fixed-income-tracker-102035937741.asia-southeast1.run.app",
+];
+
+for (const host of alternateHosts) {
+  test(`requests carrying the ${host} host redirect to the primary domain`, async () => {
+    const path = "/investments/example?tab=documents";
+    const response = await requestWithHost(path, host);
+
+    assert.equal(response.statusCode, 308);
+    assert.equal(response.headers.location, `https://${PRIMARY_HOST}${path}`);
+  });
+}
+
+test("a request carrying the primary host renders normally", async () => {
+  const response = await requestWithHost("/", PRIMARY_HOST);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.headers.location, undefined);
 });

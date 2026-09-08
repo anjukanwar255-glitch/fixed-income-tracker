@@ -3,8 +3,8 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
-    name: "Fixed Income Tracker",
-    short_name: "Income Tracker",
+    name: "Portfolio",
+    short_name: "Portfolio",
     description: "Track fixed deposits, bonds, payouts, TDS and maturity dates in one private ledger.",
     start_url: "/",
     scope: "/",

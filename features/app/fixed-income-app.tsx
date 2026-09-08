@@ -116,7 +116,7 @@ export function FixedIncomeApp() {
     return (
       <main className="splash-screen">
         <div className="splash-logo"><Landmark aria-hidden="true" /></div>
-        <h1>Fixed Income Tracker</h1>
+        <h1>Portfolio</h1>
         <p>Every payout. Clearly accounted.</p>
         <span className="splash-loader"><i /></span>
       </main>
@@ -127,7 +127,7 @@ export function FixedIncomeApp() {
     return (
       <main className="auth-shell">
         <section className="auth-card">
-          <div className="auth-brand"><span className="brand-mark"><Landmark aria-hidden="true" /></span><span>Fixed Income Tracker</span></div>
+          <div className="auth-brand"><span className="brand-mark"><Landmark aria-hidden="true" /></span><span>Portfolio</span></div>
           <div className="auth-heading"><h1>Security check unavailable</h1><p>The app could not start its security protection. Reload the page; if this continues, use the Support page.</p></div>
           <Button size="lg" className="w-full" onClick={() => window.location.reload()}>Reload app</Button>
         </section>
@@ -143,7 +143,7 @@ export function FixedIncomeApp() {
     return loadError ? (
       <main className="auth-shell">
         <section className="auth-card">
-          <div className="auth-brand"><span className="brand-mark"><Landmark aria-hidden="true" /></span><span>Fixed Income Tracker</span></div>
+          <div className="auth-brand"><span className="brand-mark"><Landmark aria-hidden="true" /></span><span>Portfolio</span></div>
           <div className="auth-heading"><h1>We couldn&apos;t load your account</h1><p>Your records are safe. Check the connection and try again.</p></div>
           <Button size="lg" className="w-full" onClick={() => void loadAccount()}>Try again</Button>
         </section>
@@ -151,7 +151,7 @@ export function FixedIncomeApp() {
     ) : (
       <main className="splash-screen">
         <div className="splash-logo"><Landmark aria-hidden="true" /></div>
-        <h1>Fixed Income Tracker</h1>
+        <h1>Portfolio</h1>
         <p>Preparing your account…</p>
         <span className="splash-loader"><i /></span>
       </main>
@@ -168,7 +168,7 @@ export function FixedIncomeApp() {
   }
 
   if (!billing) {
-    return <main className="splash-screen"><div className="splash-logo"><Landmark aria-hidden="true" /></div><h1>Fixed Income Tracker</h1><p>Checking account access…</p><span className="splash-loader"><i /></span></main>;
+    return <main className="splash-screen"><div className="splash-logo"><Landmark aria-hidden="true" /></div><h1>Portfolio</h1><p>Checking account access…</p><span className="splash-loader"><i /></span></main>;
   }
 
   if (!billing.entitlement.entitled) {

@@ -36,6 +36,23 @@ const securityHeaders = [
   { key: "content-security-policy", value: contentSecurityPolicy },
 ];
 
+/**
+ * App Hosting always keeps the generated `*.hosted.app` domain (and the Cloud
+ * Run URL behind it) reachable alongside any custom domain — unlike the
+ * previous Cloudflare setup, there is no way to turn it off. The app must
+ * only be reachable at `portfolio.cartranspro.com`, so both alternate origins
+ * redirect there.
+ *
+ * This uses `redirects()`, resolved by Next's own routing at build time,
+ * rather than middleware — Firebase documents the Next.js Proxy as still
+ * having rough edges on App Hosting, and this must not depend on it.
+ */
+const PRIMARY_HOST = "portfolio.cartranspro.com";
+const alternateHosts = [
+  "fixed-income-tracker--portfolio-7c0d0.asia-southeast1.hosted.app",
+  "fixed-income-tracker-102035937741.asia-southeast1.run.app",
+];
+
 const nextConfig: NextConfig = {
   async headers() {
     return [
@@ -45,6 +62,14 @@ const nextConfig: NextConfig = {
         headers: [{ key: "cache-control", value: "no-store, max-age=0" }],
       },
     ];
+  },
+  async redirects() {
+    return alternateHosts.map((host) => ({
+      source: "/:path*",
+      has: [{ type: "host" as const, value: host }],
+      destination: `https://${PRIMARY_HOST}/:path*`,
+      permanent: true,
+    }));
   },
 };
 
