@@ -66,14 +66,30 @@ Also recorded because it reverses something this document said earlier:
 migration.** App Hosting always keeps its generated `*.hosted.app` domain (and
 the Cloud Run URL behind it) reachable alongside a custom domain — there is no
 setting to turn either off, unlike Cloudflare Sites where attaching a custom
-domain could supersede the platform one. The equivalent enforcement is now in
-`next.config.ts`'s `redirects()`, matched on the `Host` header via `has:
-[{ type: "host", value: ... }]`, rather than in middleware — evaluated by
-Next's own routing layer, not the Proxy Firebase flags as still rough around
-the edges. Covered by three tests in `tests/rendered-html.test.mjs` — note
-that exercising a Host-based redirect needs `node:http` directly, since the
-Fetch API treats `Host` as a forbidden header and silently drops any attempt
-to set it, which reads as a mysterious 404 rather than an error.
+domain could supersede the platform one.
+
+**A first attempt at this caused a live outage and was reverted.** It used
+`next.config.ts`'s `redirects()`, matched on the `Host` header via
+`has: [{ type: "host", value: <alternate hostname> }]`. Tested locally against
+`next start`, this worked — three tests confirmed both alternate hosts
+redirected and the primary host rendered normally. It broke in production: on
+App Hosting, the Next.js server process sees the internal Cloud Run hostname
+as the request Host regardless of which public domain the client actually
+used, so the "this isn't the primary host" rule matched every request,
+including ones to `portfolio.cartranspro.com` itself. The custom domain
+redirected to itself in a loop for several minutes before the revert deployed
+(confirmed with `curl -L`, which hit its 50-redirect cap).
+
+Local `next start` does not reproduce this: the Host header there is exactly
+what the client sets, which is not how App Hosting's CDN and load balancer
+forward requests. A correct version needs a header that survives the proxy —
+`x-forwarded-host` is the standard candidate — verified against real request
+headers before it goes near production again, not only against a local dev
+server. (Testing a Host-based redirect at all needs `node:http` directly
+rather than `fetch()`, which treats `Host` as a forbidden header and silently
+drops any attempt to set it — that reads as a mysterious 404, not an error.)
+Domain enforcement is not currently implemented; both the custom domain and
+the generated `*.hosted.app` URL serve the app.
 
 Still outstanding:
 
