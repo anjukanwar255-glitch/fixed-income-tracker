@@ -11,6 +11,8 @@ import { maskPhoneNumber } from "@/hooks/use-firebase-auth";
 import { apiFetch } from "@/lib/firebase-client";
 
 const PAN_PATTERN = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+/** Deliberately loose: the server's validator is the one that decides. */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type Props = {
   phoneNumber: string | null;
@@ -37,8 +39,30 @@ export function AccountSetup({ phoneNumber, onComplete }: Props) {
       setError("Enter your full name as it appears on your investments.");
       return;
     }
-    if (pan && !PAN_PATTERN.test(pan)) {
+    if (!email.trim()) {
+      setError("Enter your email address.");
+      return;
+    }
+    if (!EMAIL_PATTERN.test(email.trim())) {
+      setError("That email doesn't look right. Check it and try again.");
+      return;
+    }
+    if (!pan) {
+      setError("Enter your PAN.");
+      return;
+    }
+    if (!PAN_PATTERN.test(pan)) {
       setError("That PAN doesn't look right. The format is ABCDE1234F.");
+      return;
+    }
+    if (!dateOfBirth) {
+      setError("Enter your date of birth.");
+      return;
+    }
+    // The server rejects a future date too; catching it here keeps the
+    // round trip out of an obvious mistake.
+    if (dateOfBirth >= new Date().toISOString().slice(0, 10)) {
+      setError("Date of birth must be in the past.");
       return;
     }
     if (!acceptedTerms) {
@@ -113,7 +137,7 @@ export function AccountSetup({ phoneNumber, onComplete }: Props) {
           </label>
 
           <div className="form-field">
-            <Label htmlFor="setup-email">Email <span className="field-optional">optional</span></Label>
+            <Label htmlFor="setup-email">Email</Label>
             <Input
               id="setup-email"
               type="email"
@@ -125,7 +149,7 @@ export function AccountSetup({ phoneNumber, onComplete }: Props) {
           </div>
 
           <div className="form-field">
-            <Label htmlFor="setup-pan">PAN <span className="field-optional">optional</span></Label>
+            <Label htmlFor="setup-pan">PAN</Label>
             <Input
               id="setup-pan"
               placeholder="ABCDE1234F"
@@ -137,7 +161,7 @@ export function AccountSetup({ phoneNumber, onComplete }: Props) {
           </div>
 
           <div className="form-field">
-            <Label htmlFor="setup-dob">Date of birth <span className="field-optional">optional</span></Label>
+            <Label htmlFor="setup-dob">Date of birth</Label>
             <Input
               id="setup-dob"
               type="date"

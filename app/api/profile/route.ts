@@ -16,14 +16,24 @@ export const dynamic = "force-dynamic";
  */
 const PAN_PATTERN = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
+/**
+ * Name, email and date of birth are required for both account setup and later
+ * edits — all three are readable, so the edit form can pre-fill them.
+ *
+ * PAN is the exception. It is write-only: only the masked form is ever sent
+ * back, so the edit form starts blank and an empty value there means "keep the
+ * stored one", not "clear it". Requiring it unconditionally would make every
+ * profile edit fail unless the whole PAN were retyped. It is instead required
+ * at account creation only, which the handler enforces once it knows whether a
+ * profile already exists.
+ */
 const profileInput = z.object({
   fullName: z.string().trim().min(2).max(120),
-  email: z.string().trim().email().max(160).optional().or(z.literal("")),
+  email: z.string().trim().email("Enter a valid email address").max(160),
   pan: z.string().trim().toUpperCase().regex(PAN_PATTERN, "Enter a valid PAN").optional().or(z.literal("")),
-  dateOfBirth: z.string().date().optional().or(z.literal("")),
+  dateOfBirth: z.string().date(),
   acceptedTerms: z.boolean().optional().default(false),
 }).superRefine((value, context) => {
-  if (!value.dateOfBirth) return;
   const today = new Date().toISOString().slice(0, 10);
   if (value.dateOfBirth >= today) {
     context.addIssue({ code: "custom", path: ["dateOfBirth"], message: "Date of birth must be in the past" });
@@ -79,6 +89,11 @@ export async function POST(request: Request) {
     const existing = await readDoc(userDoc(owner.uid));
     if (!existing && !input.acceptedTerms) {
       return Response.json({ error: "Accept the Terms and Privacy Policy to create your account" }, { status: 400 });
+    }
+    // Required to create an account, but blank on a later edit means "keep the
+    // stored PAN" — the client never receives it back unmasked to resend.
+    if (!existing && !panMasked) {
+      return Response.json({ error: "Enter your PAN to create your account" }, { status: 400 });
     }
     const identityHash = existing ? null : await trialIdentityHash(owner);
     const priorTrial = identityHash ? await readDoc(trialClaims().doc(identityHash)) : null;
