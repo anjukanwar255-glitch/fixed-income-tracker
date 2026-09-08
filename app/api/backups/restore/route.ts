@@ -1,8 +1,20 @@
-import { eq } from "drizzle-orm";
+import type { CollectionReference } from "firebase-admin/firestore";
 import { z } from "zod";
 
-import { getDb } from "@/db";
-import { activityLogs, documents, formRecords, investments, notifications, payoutSchedules, payoutTransactions, tdsRecords, users } from "@/db/schema";
+import {
+  activityLogs,
+  commitAll,
+  documents,
+  forms,
+  investments,
+  notifications,
+  payoutSchedules,
+  payoutTransactions,
+  readDoc,
+  setOp,
+  tdsRecords,
+  userDoc,
+} from "@/db";
 import { readLatestUserBackup } from "@/lib/backups";
 import { authenticatedRequest, hasRecentAuthentication } from "@/lib/firebase-auth";
 import { rateLimit } from "@/lib/rate-limit";
@@ -30,43 +42,50 @@ export async function POST(request: Request) {
     const backup = await readLatestUserBackup(identity);
     const data = backup.data;
     if (!data.profile) return Response.json({ error: "The backup has no account profile" }, { status: 422 });
-    const db = getDb();
-    const existing = await db.select({ id: investments.id }).from(investments).where(eq(investments.userId, identity.uid));
+    const existingIds = await documentIds(investments(identity.uid));
     const backupInvestmentIds = new Set(data.investments.map((item) => item.id));
-    if (existing.some((item) => !backupInvestmentIds.has(item.id))) {
+    if ([...existingIds].some((id) => !backupInvestmentIds.has(id))) {
       return Response.json({ error: "Recovery stopped because this account contains newer portfolio records. Export the current data before contacting support." }, { status: 409 });
     }
 
     const now = new Date().toISOString();
-    await db.insert(users).values({
-      ...data.profile,
-      id: identity.uid,
-      authSubject: identity.uid,
-      mobileE164: identity.phoneNumber ?? data.profile.mobileE164,
-      email: identity.email ?? data.profile.email,
-      deletedAt: null,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: users.id,
-      set: { fullName: data.profile.fullName, panMasked: data.profile.panMasked, dateOfBirth: data.profile.dateOfBirth, deletedAt: null, updatedAt: now },
-    });
-
-    const operations: unknown[] = [];
-    for (const rows of chunks(data.investments.map((item) => ({ ...item, userId: identity.uid })), 2)) operations.push(db.insert(investments).values(rows).onConflictDoNothing());
-    for (const rows of chunks(data.payoutSchedules.map((item) => ({ ...item, userId: identity.uid })), 6)) operations.push(db.insert(payoutSchedules).values(rows).onConflictDoNothing());
-    for (const rows of chunks(data.payoutTransactions.map((item) => ({ ...item, userId: identity.uid })), 5)) operations.push(db.insert(payoutTransactions).values(rows).onConflictDoNothing());
-    for (const rows of chunks(data.tdsRecords.map((item) => ({ ...item, userId: identity.uid })), 4)) operations.push(db.insert(tdsRecords).values(rows).onConflictDoNothing());
-    for (const rows of chunks(data.forms.map((item) => ({ ...item, userId: identity.uid })), 5)) operations.push(db.insert(formRecords).values(rows).onConflictDoNothing());
-    for (const rows of chunks(data.documents.map((item) => ({ ...item, userId: identity.uid })), 4)) operations.push(db.insert(documents).values(rows).onConflictDoNothing());
-    for (const rows of chunks(data.notifications.map((item) => ({ ...item, userId: identity.uid })), 7)) operations.push(db.insert(notifications).values(rows).onConflictDoNothing());
-    for (const rows of chunks(data.activityLogs.map((item) => ({ ...item, userId: identity.uid })), 7)) operations.push(db.insert(activityLogs).values(rows).onConflictDoNothing());
-
-    for (const group of chunks(operations, 40)) {
-      await db.batch(group as unknown as Parameters<typeof db.batch>[0]);
+    const storedProfile = await readDoc(userDoc(identity.uid));
+    if (storedProfile) {
+      await userDoc(identity.uid).update({
+        fullName: data.profile.fullName,
+        panMasked: data.profile.panMasked ?? null,
+        dateOfBirth: data.profile.dateOfBirth ?? null,
+        deletedAt: null,
+        updatedAt: now,
+      });
+    } else {
+      await userDoc(identity.uid).set({
+        ...data.profile,
+        id: identity.uid,
+        mobileE164: identity.phoneNumber ?? data.profile.mobileE164,
+        email: identity.email ?? data.profile.email,
+        deletedAt: null,
+        updatedAt: now,
+      });
     }
-    await db.insert(activityLogs).values({
-      id: crypto.randomUUID(),
-      userId: identity.uid,
+
+    // Firestore has no "insert or ignore", and a `create()` inside a batch
+    // would fail the whole batch on the first row that already exists. The
+    // rows already present are read first so only genuinely missing ones are
+    // written, which keeps recovery non-destructive and idempotent.
+    await restoreMissing(investments(identity.uid), data.investments);
+    await restoreMissing(payoutSchedules(identity.uid), data.payoutSchedules);
+    await restoreMissing(payoutTransactions(identity.uid), data.payoutTransactions);
+    await restoreMissing(tdsRecords(identity.uid), data.tdsRecords);
+    await restoreMissing(forms(identity.uid), data.forms);
+    await restoreMissing(documents(identity.uid), data.documents);
+    await restoreMissing(notifications(identity.uid), data.notifications);
+    await restoreMissing(activityLogs(identity.uid), data.activityLogs);
+
+    const logId = crypto.randomUUID();
+    await activityLogs(identity.uid).doc(logId).set({
+      id: logId,
+      actorType: "user",
       action: "backup-restored",
       entityType: "user",
       entityId: identity.uid,
@@ -79,8 +98,17 @@ export async function POST(request: Request) {
   }
 }
 
-function chunks<T>(values: T[], size: number) {
-  const result: T[][] = [];
-  for (let index = 0; index < values.length; index += size) result.push(values.slice(index, index + size));
-  return result;
+/** Ids only: the documents themselves are not needed to decide what is missing. */
+async function documentIds(collection: CollectionReference<{ id: string }>) {
+  const snapshot = await collection.select().get();
+  return new Set(snapshot.docs.map((document) => document.id));
+}
+
+async function restoreMissing<T extends { id: string }>(collection: CollectionReference<T>, rows: T[]) {
+  if (!rows.length) return;
+  const present = await documentIds(collection as CollectionReference<{ id: string }>);
+  const missing = rows.filter((row) => !present.has(row.id));
+  if (missing.length) {
+    await commitAll(missing.map((row) => setOp(collection.doc(row.id), row)));
+  }
 }

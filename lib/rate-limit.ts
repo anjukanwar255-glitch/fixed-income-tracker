@@ -3,9 +3,9 @@ type Bucket = { count: number; resetsAt: number };
 const buckets = new Map<string, Bucket>();
 
 /**
- * Per-isolate abuse protection. Cloudflare edge rate-limit/WAF rules should be
+ * Per-instance abuse protection. Cloud Armor rate-limit/WAF rules should be
  * the outer production layer; this still stops accidental request storms in a
- * warm isolate without persisting phone numbers or IP addresses.
+ * warm instance without persisting phone numbers or IP addresses.
  */
 export async function rateLimit(
   request: Request,

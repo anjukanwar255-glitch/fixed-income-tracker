@@ -1,10 +1,4 @@
-import { eq } from "drizzle-orm";
-
-import { getDb } from "@/db";
-import {
-  activityLogs, backupRuns, documents, formRecords, investments, notifications, payoutSchedules,
-  payoutTransactions, subscriptions, tdsRecords, users,
-} from "@/db/schema";
+import { backupRuns, deleteUserTree, documents, listDocs, subscriptions } from "@/db";
 import { razorpayRequest } from "@/lib/billing";
 import { authenticatedRequest, hasRecentAuthentication } from "@/lib/firebase-auth";
 import { deleteFirebaseObject } from "@/lib/firebase-storage";
@@ -15,11 +9,10 @@ export async function DELETE() {
   const identity = await authenticatedRequest();
   if (!identity) return Response.json({ error: "Authentication required" }, { status: 401 });
   if (!hasRecentAuthentication(identity)) return Response.json({ error: "Please sign out and sign in again before deleting your account" }, { status: 403 });
-  const db = getDb();
   const [documentRows, subscriptionRows, backupRows] = await Promise.all([
-    db.select({ objectKey: documents.objectKey }).from(documents).where(eq(documents.userId, identity.uid)),
-    db.select({ providerSubscriptionId: subscriptions.providerSubscriptionId, status: subscriptions.status }).from(subscriptions).where(eq(subscriptions.userId, identity.uid)),
-    db.select({ objectKey: backupRuns.objectKey }).from(backupRuns).where(eq(backupRuns.userId, identity.uid)),
+    listDocs(documents(identity.uid)),
+    listDocs(subscriptions(identity.uid)),
+    listDocs(backupRuns(identity.uid)),
   ]);
 
   for (const subscription of subscriptionRows) {
@@ -43,19 +36,10 @@ export async function DELETE() {
     return Response.json({ error: "Recovery snapshots could not be removed from Firebase. No database records were deleted; please try again." }, { status: 503 });
   }
 
-  const operations = [
-    db.delete(tdsRecords).where(eq(tdsRecords.userId, identity.uid)),
-    db.delete(payoutTransactions).where(eq(payoutTransactions.userId, identity.uid)),
-    db.delete(payoutSchedules).where(eq(payoutSchedules.userId, identity.uid)),
-    db.delete(formRecords).where(eq(formRecords.userId, identity.uid)),
-    db.delete(documents).where(eq(documents.userId, identity.uid)),
-    db.delete(notifications).where(eq(notifications.userId, identity.uid)),
-    db.delete(activityLogs).where(eq(activityLogs.userId, identity.uid)),
-    db.delete(backupRuns).where(eq(backupRuns.userId, identity.uid)),
-    db.delete(subscriptions).where(eq(subscriptions.userId, identity.uid)),
-    db.delete(investments).where(eq(investments.userId, identity.uid)),
-    db.delete(users).where(eq(users.id, identity.uid)),
-  ];
-  await db.batch(operations as unknown as Parameters<typeof db.batch>[0]);
+  // Removes the user document and every subcollection under it, which is the
+  // eleven table deletes this replaced. `trialClaims` is deliberately outside
+  // the user subtree and survives, so a deleted account cannot claim a second
+  // free trial.
+  await deleteUserTree(identity.uid);
   return Response.json({ deleted: true });
 }

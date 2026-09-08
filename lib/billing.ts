@@ -1,8 +1,6 @@
-import { and, desc, eq, gt, inArray, isNull } from "drizzle-orm";
-import { env } from "cloudflare:workers";
+import { env } from "@/lib/env";
 
-import { getDb } from "@/db";
-import { subscriptions, users } from "@/db/schema";
+import { firstDoc, readDoc, subscriptions, userDoc } from "@/db";
 
 export type PlanCode = "monthly" | "half-yearly" | "yearly";
 
@@ -25,29 +23,27 @@ export type Entitlement = {
 };
 
 export async function getEntitlement(ownerId: string): Promise<Entitlement> {
-  const db = getDb();
   const now = new Date();
-  const [profile] = await db.select({ trialEndsAt: users.trialEndsAt }).from(users)
-    .where(and(eq(users.id, ownerId), isNull(users.deletedAt))).limit(1);
+  const stored = await readDoc(userDoc(ownerId));
+  const profile = stored && !stored.deletedAt ? stored : null;
   if (!profile) {
     return { entitled: true, state: "onboarding", trialEndsAt: null, daysRemaining: 7, planCode: null, subscriptionStatus: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, billingConfigured: isBillingConfigured() };
   }
 
-  const [active] = await db.select().from(subscriptions).where(and(
-    eq(subscriptions.userId, ownerId),
-    inArray(subscriptions.status, ["active", "authenticated"]),
-    gt(subscriptions.currentPeriodEnd, now.toISOString()),
-    isNull(subscriptions.deletedAt),
-  )).orderBy(desc(subscriptions.currentPeriodEnd)).limit(1);
+  const active = await firstDoc(subscriptions(ownerId)
+    .where("deletedAt", "==", null)
+    .where("status", "in", ["active", "authenticated"])
+    .where("currentPeriodEnd", ">", now.toISOString())
+    .orderBy("currentPeriodEnd", "desc"));
   if (active) {
     return {
       entitled: true,
       state: "subscribed",
-      trialEndsAt: profile.trialEndsAt,
+      trialEndsAt: profile.trialEndsAt ?? null,
       daysRemaining: 0,
       planCode: active.planCode,
       subscriptionStatus: active.status,
-      currentPeriodEnd: active.currentPeriodEnd,
+      currentPeriodEnd: active.currentPeriodEnd ?? null,
       cancelAtPeriodEnd: active.cancelAtPeriodEnd,
       billingConfigured: isBillingConfigured(),
     };
@@ -58,7 +54,7 @@ export async function getEntitlement(ownerId: string): Promise<Entitlement> {
   return {
     entitled: trialActive,
     state: trialActive ? "trial" : "expired",
-    trialEndsAt: profile.trialEndsAt,
+    trialEndsAt: profile.trialEndsAt ?? null,
     daysRemaining: trialEndsAt ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now.getTime()) / 86_400_000)) : 0,
     planCode: null,
     subscriptionStatus: null,

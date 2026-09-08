@@ -1,8 +1,9 @@
-import { eq } from "drizzle-orm";
-
-import { getDb } from "@/db";
-import { billingEvents, subscriptions } from "@/db/schema";
+import { allSubscriptions, billingEventId, billingEvents, readDoc } from "@/db";
 import { razorpayConfig, unixToIso } from "@/lib/billing";
+
+const PROVIDER = "razorpay";
+/** gRPC ALREADY_EXISTS, thrown by `create()` when the document is present. */
+const ALREADY_EXISTS = 6;
 
 export const dynamic = "force-dynamic";
 
@@ -25,10 +26,13 @@ export async function POST(request: Request) {
     return new Response("Invalid signature", { status: 401 });
   }
 
-  const db = getDb();
-  const [alreadyProcessed] = await db.select({ id: billingEvents.id }).from(billingEvents)
-    .where(eq(billingEvents.providerEventId, eventId)).limit(1);
-  if (alreadyProcessed) return Response.json({ received: true, duplicate: true });
+  // The document id carries the uniqueness the old index enforced, so a replay
+  // is caught here and, if two deliveries race past this read, again by the
+  // `create()` below.
+  const recordId = billingEventId(PROVIDER, eventId);
+  if (await readDoc(billingEvents().doc(recordId))) {
+    return Response.json({ received: true, duplicate: true });
+  }
 
   let payload: { event?: string; payload?: { subscription?: { entity?: SubscriptionEntity } } };
   try { payload = JSON.parse(raw) as typeof payload; } catch { return new Response("Invalid JSON", { status: 400 }); }
@@ -37,25 +41,41 @@ export async function POST(request: Request) {
   const now = new Date().toISOString();
 
   if (entity?.id) {
-    await db.update(subscriptions).set({
+    // This request is authenticated by signature alone, so the provider
+    // subscription id is the only route back to the owning user. Subscriptions
+    // live under their user, which makes this a collection group query and
+    // requires the matching index.
+    const matches = await allSubscriptions().where("providerSubscriptionId", "==", entity.id).get();
+    await Promise.all(matches.docs.map((match) => match.ref.update({
       status: entity.status,
       currentPeriodStart: unixToIso(entity.current_start),
       currentPeriodEnd: unixToIso(entity.current_end),
       cancelAtPeriodEnd: Boolean(entity.cancel_at_cycle_end),
       cancelledAt: entity.status === "cancelled" ? unixToIso(entity.ended_at) ?? now : null,
       updatedAt: now,
-    }).where(eq(subscriptions.providerSubscriptionId, entity.id));
+    })));
   }
-  await db.insert(billingEvents).values({
-    id: crypto.randomUUID(),
-    providerEventId: eventId,
-    eventType: payload.event ?? "unknown",
-    providerSubscriptionId: entity?.id ?? null,
-    payloadSha256: digest,
-    processingStatus: entity?.id ? "processed" : "ignored",
-    processedAt: now,
-    createdAt: now,
-  });
+
+  try {
+    await billingEvents().doc(recordId).create({
+      id: recordId,
+      provider: PROVIDER,
+      providerEventId: eventId,
+      eventType: payload.event ?? "unknown",
+      providerSubscriptionId: entity?.id ?? null,
+      payloadSha256: digest,
+      processingStatus: entity?.id ? "processed" : "ignored",
+      processedAt: now,
+      createdAt: now,
+    });
+  } catch (error) {
+    if ((error as { code?: number }).code === ALREADY_EXISTS) {
+      return Response.json({ received: true, duplicate: true });
+    }
+    // Let the provider retry. The subscription update above sets absolute
+    // values from the entity, so replaying it changes nothing.
+    return new Response("Webhook could not be recorded", { status: 503 });
+  }
   return Response.json({ received: true });
 }
 

@@ -1,0 +1,82 @@
+# Firebase App Hosting runtime configuration.
+#
+# Secret-valued entries resolve from Cloud Secret Manager at deploy time and
+# are never stored in this file. Create each one before the first deploy:
+#
+#   firebase apphosting:secrets:set backup-encryption-key
+#   firebase apphosting:secrets:set trial-hash-secret
+#   firebase apphosting:secrets:set razorpay-key-secret
+#   firebase apphosting:secrets:set razorpay-webhook-secret
+#
+# Values marked `value:` are not secret: the Razorpay key id and plan ids are
+# sent to the browser during checkout, and the App Check site key is public by
+# design.
+
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  minInstances: 0
+  maxInstances: 2
+  concurrency: 80
+
+env:
+  - variable: BACKUP_ENCRYPTION_KEY
+    secret: backup-encryption-key
+    availability:
+      - RUNTIME
+
+  - variable: BACKUP_KEY_VERSION
+    value: v1
+    availability:
+      - RUNTIME
+
+  # Set these two only while rotating the backup key, and keep them until every
+  # active account has produced a snapshot under the new key.
+  # - variable: BACKUP_PREVIOUS_ENCRYPTION_KEY
+  #   secret: backup-previous-encryption-key
+  #   availability:
+  #     - RUNTIME
+  # - variable: BACKUP_PREVIOUS_KEY_VERSION
+  #   value: v0
+  #   availability:
+  #     - RUNTIME
+
+  - variable: TRIAL_HASH_SECRET
+    secret: trial-hash-secret
+    availability:
+      - RUNTIME
+
+  - variable: FIREBASE_APPCHECK_SITE_KEY
+    value: ""
+    availability:
+      - RUNTIME
+
+  - variable: RAZORPAY_KEY_ID
+    value: ""
+    availability:
+      - RUNTIME
+
+  - variable: RAZORPAY_KEY_SECRET
+    secret: razorpay-key-secret
+    availability:
+      - RUNTIME
+
+  - variable: RAZORPAY_WEBHOOK_SECRET
+    secret: razorpay-webhook-secret
+    availability:
+      - RUNTIME
+
+  - variable: RAZORPAY_PLAN_MONTHLY
+    value: ""
+    availability:
+      - RUNTIME
+
+  - variable: RAZORPAY_PLAN_HALF_YEARLY
+    value: ""
+    availability:
+      - RUNTIME
+
+  - variable: RAZORPAY_PLAN_YEARLY
+    value: ""
+    availability:
+      - RUNTIME

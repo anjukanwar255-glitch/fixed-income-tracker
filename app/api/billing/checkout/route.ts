@@ -1,8 +1,6 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb } from "@/db";
-import { subscriptions } from "@/db/schema";
+import { firstDoc, subscriptions } from "@/db";
 import { findPlan, getEntitlement, razorpayConfig, razorpayRequest } from "@/lib/billing";
 import { authenticatedUser } from "@/lib/firebase-auth";
 import { rateLimit } from "@/lib/rate-limit";
@@ -32,17 +30,15 @@ export async function POST(request: Request) {
 
   try {
     const config = razorpayConfig();
-    const db = getDb();
     const providerPlan = await razorpayRequest<RazorpayPlan>(`/plans/${config.planIds[plan.code]}`);
     if (providerPlan.item?.amount !== plan.amountPaise || providerPlan.item?.currency !== "INR" || providerPlan.period !== plan.period || providerPlan.interval !== plan.interval) {
       throw new Error(`The Razorpay ${plan.label} plan does not match the approved price and billing interval`);
     }
-    const [existing] = await db.select().from(subscriptions).where(and(
-      eq(subscriptions.userId, user.uid),
-      eq(subscriptions.planCode, plan.code),
-      inArray(subscriptions.status, ["created", "authenticated", "pending", "active"]),
-      isNull(subscriptions.deletedAt),
-    )).orderBy(desc(subscriptions.createdAt)).limit(1);
+    const existing = await firstDoc(subscriptions(user.uid)
+      .where("deletedAt", "==", null)
+      .where("planCode", "==", plan.code)
+      .where("status", "in", ["created", "authenticated", "pending", "active"])
+      .orderBy("createdAt", "desc"));
     if (existing?.providerSubscriptionId) {
       return Response.json({ keyId: config.keyId, subscriptionId: existing.providerSubscriptionId, plan });
     }
@@ -63,16 +59,22 @@ export async function POST(request: Request) {
       }),
     });
     const now = new Date().toISOString();
-    await db.insert(subscriptions).values({
-      id: crypto.randomUUID(),
+    const subscriptionId = crypto.randomUUID();
+    await subscriptions(user.uid).doc(subscriptionId).set({
+      id: subscriptionId,
+      // Denormalised so the webhook, which sees only the provider id, can find
+      // the owner through the subscriptions collection group.
       userId: user.uid,
+      provider: "razorpay",
       providerSubscriptionId: provider.id,
       planCode: plan.code,
       status: provider.status,
       currentPeriodStart: provider.current_start ? new Date(provider.current_start * 1000).toISOString() : null,
       currentPeriodEnd: provider.current_end ? new Date(provider.current_end * 1000).toISOString() : entitlement.trialEndsAt,
+      cancelAtPeriodEnd: false,
       createdAt: now,
       updatedAt: now,
+      deletedAt: null,
     });
     return Response.json({ keyId: config.keyId, subscriptionId: provider.id, plan }, { status: 201 });
   } catch (error) {

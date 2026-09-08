@@ -1,9 +1,9 @@
-import { and, asc, eq, gte, inArray, isNull, lte, notInArray } from "drizzle-orm";
-
-import { getDb } from "@/db";
-import { investments, payoutSchedules } from "@/db/schema";
+import { getDb, investments, listDocs, payoutSchedules } from "@/db";
+import type { InvestmentDoc } from "@/db/types";
 import { requireEntitlement } from "@/lib/billing";
 import { authenticatedUser } from "@/lib/firebase-auth";
+
+const SETTLED_PAYOUT_STATUSES = new Set(["received", "partial-received"]);
 
 export const dynamic = "force-dynamic";
 
@@ -16,31 +16,47 @@ export async function GET() {
   const today = new Date();
   const from = today.toISOString().slice(0, 10);
   const until = new Date(today.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
-  const db = getDb();
-  const [payouts, maturities] = await Promise.all([
-    db.select({
-      id: payoutSchedules.id,
-      dueDate: payoutSchedules.dueDate,
-      investmentId: payoutSchedules.investmentId,
-      name: investments.investmentName,
-      amountPaise: payoutSchedules.expectedNetPaise,
-    }).from(payoutSchedules).innerJoin(investments, eq(investments.id, payoutSchedules.investmentId)).where(and(
-      eq(payoutSchedules.userId, identity.uid),
-      isNull(payoutSchedules.deletedAt),
-      isNull(investments.deletedAt),
-      gte(payoutSchedules.dueDate, from),
-      lte(payoutSchedules.dueDate, until),
-      notInArray(payoutSchedules.status, ["received", "partial-received"]),
-    )).orderBy(asc(payoutSchedules.dueDate)).limit(25),
-    db.select({ id: investments.id, dueDate: investments.maturityDate, name: investments.investmentName })
-      .from(investments).where(and(
-        eq(investments.userId, identity.uid),
-        isNull(investments.deletedAt),
-        inArray(investments.status, ["active"]),
-        gte(investments.maturityDate, from),
-        lte(investments.maturityDate, until),
-      )).orderBy(asc(investments.maturityDate)).limit(25),
+  // Firestore allows only one `not-in` per query and requires it to lead the
+  // ordering, which conflicts with ordering by due date. Fetching a wider
+  // window and dropping settled payouts here keeps the ordering and needs no
+  // extra index.
+  const [dueSchedules, maturityRows] = await Promise.all([
+    listDocs(payoutSchedules(identity.uid)
+      .where("deletedAt", "==", null)
+      .where("dueDate", ">=", from)
+      .where("dueDate", "<=", until)
+      .orderBy("dueDate", "asc")
+      .limit(100)),
+    listDocs(investments(identity.uid)
+      .where("deletedAt", "==", null)
+      .where("status", "==", "active")
+      .where("maturityDate", ">=", from)
+      .where("maturityDate", "<=", until)
+      .orderBy("maturityDate", "asc")
+      .limit(25)),
   ]);
+
+  const pending = dueSchedules.filter((row) => !SETTLED_PAYOUT_STATUSES.has(row.status)).slice(0, 25);
+
+  // The join the SQL query did. Only the parent investments actually referenced
+  // are read, and a soft-deleted parent hides its payouts as before.
+  const parentIds = [...new Set(pending.map((row) => row.investmentId))];
+  const parents = new Map<string, InvestmentDoc>();
+  if (parentIds.length) {
+    const snapshots = await getDb().getAll(...parentIds.map((id) => investments(identity.uid).doc(id)));
+    for (const snapshot of snapshots) {
+      const parent = snapshot.data() as InvestmentDoc | undefined;
+      if (parent && !parent.deletedAt) parents.set(snapshot.id, parent);
+    }
+  }
+
+  const payouts = pending.flatMap((row) => {
+    const parent = parents.get(row.investmentId);
+    return parent
+      ? [{ id: row.id, dueDate: row.dueDate, investmentId: row.investmentId, name: parent.investmentName, amountPaise: row.expectedNetPaise }]
+      : [];
+  });
+  const maturities = maturityRows.map((row) => ({ id: row.id, dueDate: row.maturityDate, name: row.investmentName }));
 
   const reminders = [
     ...payouts.map((item) => ({

@@ -1,21 +1,25 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { calculateFinancialYear, generatePayoutSchedule } from "@/core/finance/calculations";
 import type { InvestmentDraft } from "@/core/models/financial";
 import { requireEntitlement } from "@/lib/billing";
 import { createUserBackup } from "@/lib/backups";
-import { getDb } from "@/db";
 import {
   activityLogs,
+  type BatchOperation,
+  commitAll,
   documents,
-  formRecords,
+  firstDoc,
+  forms,
   investments,
+  listDocs,
   payoutSchedules,
   payoutTransactions,
+  readDoc,
+  setOp,
   tdsRecords,
-  users,
-} from "@/db/schema";
+  userDoc,
+} from "@/db";
 import { authenticatedRequest } from "@/lib/firebase-auth";
 
 export const dynamic = "force-dynamic";
@@ -74,28 +78,17 @@ export async function GET() {
   if (paywall) return paywall;
 
   try {
-    const db = getDb();
-    const rows = await db.select().from(investments)
-      .where(and(eq(investments.userId, owner.id), isNull(investments.deletedAt)))
-      .orderBy(desc(investments.createdAt));
-    const schedules = await db.select().from(payoutSchedules)
-      .where(and(eq(payoutSchedules.userId, owner.id), isNull(payoutSchedules.deletedAt)))
-      .orderBy(payoutSchedules.dueDate);
-    const transactions = await db.select().from(payoutTransactions)
-      .where(and(eq(payoutTransactions.userId, owner.id), isNull(payoutTransactions.deletedAt)))
-      .orderBy(desc(payoutTransactions.createdAt));
-    const tds = await db.select().from(tdsRecords)
-      .where(and(eq(tdsRecords.userId, owner.id), isNull(tdsRecords.deletedAt)))
-      .orderBy(desc(tdsRecords.createdAt));
-    const documentRows = await db.select().from(documents)
-      .where(and(eq(documents.userId, owner.id), isNull(documents.deletedAt)))
-      .orderBy(desc(documents.createdAt));
-    const forms = await db.select().from(formRecords)
-      .where(and(eq(formRecords.userId, owner.id), isNull(formRecords.deletedAt)))
-      .orderBy(desc(formRecords.createdAt));
-    const activities = await db.select().from(activityLogs)
-      .where(eq(activityLogs.userId, owner.id))
-      .orderBy(desc(activityLogs.createdAt));
+    // Issued together: these are seven independent network round trips now,
+    // where the D1 versions were sequential local reads.
+    const [rows, schedules, transactions, tds, documentRows, formRows, activities] = await Promise.all([
+      listDocs(investments(owner.id).where("deletedAt", "==", null).orderBy("createdAt", "desc")),
+      listDocs(payoutSchedules(owner.id).where("deletedAt", "==", null).orderBy("dueDate", "asc")),
+      listDocs(payoutTransactions(owner.id).where("deletedAt", "==", null).orderBy("createdAt", "desc")),
+      listDocs(tdsRecords(owner.id).where("deletedAt", "==", null).orderBy("createdAt", "desc")),
+      listDocs(documents(owner.id).where("deletedAt", "==", null).orderBy("createdAt", "desc")),
+      listDocs(forms(owner.id).where("deletedAt", "==", null).orderBy("createdAt", "desc")),
+      listDocs(activityLogs(owner.id).orderBy("createdAt", "desc")),
+    ]);
 
     const latestTransaction = new Map<string, (typeof transactions)[number]>();
     for (const transaction of transactions) {
@@ -130,7 +123,7 @@ export async function GET() {
           };
         }),
         documents: documentRows.filter((document) => document.investmentId === investment.id),
-        forms: forms.filter((form) => form.investmentId === investment.id),
+        forms: formRows.filter((form) => form.investmentId === investment.id),
         activity: activities.filter((activity) => activity.investmentId === investment.id),
       })),
     });
@@ -151,17 +144,13 @@ export async function POST(request: Request) {
   }
 
   const input = parsed.data;
-  const db = getDb();
   const investmentId = crypto.randomUUID();
   const createdAt = new Date().toISOString();
   const duplicate = input.investmentNumber
-    ? await db.select({ id: investments.id }).from(investments)
-      .where(and(
-        eq(investments.userId, owner.id),
-        eq(investments.investmentNumber, input.investmentNumber),
-        isNull(investments.deletedAt),
-      )).limit(1)
-    : [];
+    ? await firstDoc(investments(owner.id)
+      .where("deletedAt", "==", null)
+      .where("investmentNumber", "==", input.investmentNumber))
+    : null;
 
   const draft: InvestmentDraft = {
     type: input.investmentType as InvestmentDraft["type"],
@@ -184,20 +173,31 @@ export async function POST(request: Request) {
   const schedule = generatePayoutSchedule(draft);
 
   try {
-    await db.insert(users).values({
-      id: owner.id,
-      authSubject: owner.id,
-      email: owner.email,
-      mobileE164: owner.mobileE164,
-    }).onConflictDoUpdate({
-      target: users.authSubject,
-      set: { email: owner.email, mobileE164: owner.mobileE164, updatedAt: createdAt },
-    });
+    // Ensures the parent document exists before writing into its
+    // subcollections, and refreshes the contact details from the token.
+    // Written in full on creation: the SQLite table supplied `fullName`,
+    // `role` and `createdAt` as column defaults, which Firestore has no
+    // equivalent for, and a blind merge would blank an existing name.
+    const existingOwner = await readDoc(userDoc(owner.id));
+    if (existingOwner) {
+      await userDoc(owner.id).update({ email: owner.email, mobileE164: owner.mobileE164, updatedAt: createdAt });
+    } else {
+      await userDoc(owner.id).set({
+        id: owner.id,
+        fullName: "",
+        email: owner.email,
+        mobileE164: owner.mobileE164,
+        role: "user",
+        createdAt,
+        updatedAt: createdAt,
+        deletedAt: null,
+      });
+    }
 
-    const operations = [
-      db.insert(investments).values({
+    const logId = crypto.randomUUID();
+    const operations: BatchOperation[] = [
+      setOp(investments(owner.id).doc(investmentId), {
         id: investmentId,
-        userId: owner.id,
         investmentType: input.investmentType,
         investmentName: input.investmentName,
         issuerNameSnapshot: input.issuerName,
@@ -211,41 +211,48 @@ export async function POST(request: Request) {
         investmentDate: input.investmentDate,
         firstPayoutDate: input.firstPayoutDate,
         maturityDate: input.maturityDate,
-        expectedMaturityPaise: input.expectedMaturityPaise,
+        expectedMaturityPaise: input.expectedMaturityPaise ?? null,
         tdsApplicable: input.tdsApplicable,
         expectedTdsRateBps: input.expectedTdsRateBps,
         panLinked: input.panLinked,
         declarationApplicable: input.declarationApplicable,
-        bankName: input.bankName,
+        bankName: input.bankName ?? null,
         accountLast4: input.accountLast4 || null,
-        paymentMode: input.paymentMode,
-        nominee: input.nominee,
-        brokerPlatform: input.brokerPlatform,
-        advisorName: input.advisorName,
-        notes: input.notes,
+        paymentMode: input.paymentMode ?? null,
+        nominee: input.nominee ?? null,
+        brokerPlatform: input.brokerPlatform ?? null,
+        advisorName: input.advisorName ?? null,
+        notes: input.notes ?? null,
         status: "active",
         financialYear: calculateFinancialYear(input.investmentDate),
+        revision: 1,
         createdAt,
         updatedAt: createdAt,
+        deletedAt: null,
       }),
-      ...schedule.map((payout) => db.insert(payoutSchedules).values({
-        id: crypto.randomUUID(),
+      ...schedule.map((payout) => {
+        const payoutId = crypto.randomUUID();
+        return setOp(payoutSchedules(owner.id).doc(payoutId), {
+          id: payoutId,
+          investmentId,
+          dueDate: payout.dueDate,
+          financialYear: payout.financialYear,
+          grossInterestPaise: Number(payout.grossInterestPaise),
+          expectedTdsRateBps: input.expectedTdsRateBps,
+          expectedTdsPaise: Number(payout.expectedTdsPaise),
+          expectedNetPaise: Number(payout.expectedNetPaise),
+          status: payout.status,
+          source: "generated",
+          revision: 1,
+          createdAt,
+          updatedAt: createdAt,
+          deletedAt: null,
+        });
+      }),
+      setOp(activityLogs(owner.id).doc(logId), {
+        id: logId,
         investmentId,
-        userId: owner.id,
-        dueDate: payout.dueDate,
-        financialYear: payout.financialYear,
-        grossInterestPaise: Number(payout.grossInterestPaise),
-        expectedTdsRateBps: input.expectedTdsRateBps,
-        expectedTdsPaise: Number(payout.expectedTdsPaise),
-        expectedNetPaise: Number(payout.expectedNetPaise),
-        status: payout.status,
-        createdAt,
-        updatedAt: createdAt,
-      })),
-      db.insert(activityLogs).values({
-        id: crypto.randomUUID(),
-        userId: owner.id,
-        investmentId,
+        actorType: "user",
         action: "created",
         entityType: "investment",
         entityId: investmentId,
@@ -258,10 +265,10 @@ export async function POST(request: Request) {
         createdAt,
       }),
     ];
-    await db.batch(operations as unknown as Parameters<typeof db.batch>[0]);
+    await commitAll(operations);
 
     const backupWarning = await createUserBackup(owner).then(() => null).catch(() => "Firebase recovery backup is pending configuration");
-    const warnings = [duplicate.length ? "An investment with this number already exists" : null, backupWarning].filter(Boolean);
+    const warnings = [duplicate ? "An investment with this number already exists" : null, backupWarning].filter(Boolean);
 
     return Response.json({
       investmentId,

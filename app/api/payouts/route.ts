@@ -1,17 +1,21 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb } from "@/db";
-import { authenticatedRequest } from "@/lib/firebase-auth";
-import { requireEntitlement } from "@/lib/billing";
-import { createUserBackup } from "@/lib/backups";
 import {
   activityLogs,
+  commitAll,
+  FieldValue,
+  firstDoc,
   investments,
   payoutSchedules,
   payoutTransactions,
+  readDoc,
+  setOp,
   tdsRecords,
-} from "@/db/schema";
+  updateOp,
+} from "@/db";
+import { authenticatedRequest } from "@/lib/firebase-auth";
+import { requireEntitlement } from "@/lib/billing";
+import { createUserBackup } from "@/lib/backups";
 
 export const dynamic = "force-dynamic";
 
@@ -46,27 +50,17 @@ export async function POST(request: Request) {
     return Response.json({ error: "Please check the payout details", issues: parsed.error.flatten() }, { status: 400 });
   }
 
-  const db = getDb();
   const input = parsed.data;
-  const [schedule] = await db.select().from(payoutSchedules).where(and(
-    eq(payoutSchedules.id, input.scheduleId),
-    eq(payoutSchedules.userId, ownerId),
-    isNull(payoutSchedules.deletedAt),
-  )).limit(1);
-  if (!schedule) return Response.json({ error: "Payout not found" }, { status: 404 });
+  const schedule = await readDoc(payoutSchedules(ownerId).doc(input.scheduleId));
+  if (!schedule || schedule.deletedAt) return Response.json({ error: "Payout not found" }, { status: 404 });
 
-  const [investment] = await db.select({ name: investments.investmentName }).from(investments).where(and(
-    eq(investments.id, schedule.investmentId),
-    eq(investments.userId, ownerId),
-    isNull(investments.deletedAt),
-  )).limit(1);
-  if (!investment) return Response.json({ error: "Investment not found" }, { status: 404 });
+  const investment = await readDoc(investments(ownerId).doc(schedule.investmentId));
+  if (!investment || investment.deletedAt) return Response.json({ error: "Investment not found" }, { status: 404 });
 
-  const [previous] = await db.select().from(payoutTransactions).where(and(
-    eq(payoutTransactions.payoutScheduleId, schedule.id),
-    eq(payoutTransactions.userId, ownerId),
-    isNull(payoutTransactions.deletedAt),
-  )).orderBy(desc(payoutTransactions.createdAt)).limit(1);
+  const previous = await firstDoc(payoutTransactions(ownerId)
+    .where("deletedAt", "==", null)
+    .where("payoutScheduleId", "==", schedule.id)
+    .orderBy("createdAt", "desc"));
 
   const createdAt = new Date().toISOString();
   const receivedAmount = input.receivedAmountPaise ?? null;
@@ -77,38 +71,41 @@ export async function POST(request: Request) {
       : "received";
   const transactionId = crypto.randomUUID();
 
+  const logId = crypto.randomUUID();
   const operations = [
-    db.insert(payoutTransactions).values({
+    setOp(payoutTransactions(ownerId).doc(transactionId), {
       id: transactionId,
       payoutScheduleId: schedule.id,
       investmentId: schedule.investmentId,
-      userId: ownerId,
       receivedAmountPaise: receivedAmount,
       receivedDate: input.receivedDate ?? null,
       actualTdsPaise: input.actualTdsPaise ?? null,
       bankAccountLast4: input.bankAccountLast4 || null,
       paymentReference: input.paymentReference || null,
+      proofObjectKey: null,
       status,
       followUpDate: input.followUpDate ?? null,
       remarks: input.remarks || null,
       createdAt,
       updatedAt: createdAt,
+      deletedAt: null,
     }),
-    db.update(payoutSchedules).set({
+    updateOp(payoutSchedules(ownerId).doc(schedule.id), {
       status,
-      revision: sql`${payoutSchedules.revision} + 1`,
+      // Atomic, so a concurrent confirmation cannot lose a revision bump.
+      revision: FieldValue.increment(1),
       updatedAt: createdAt,
-    }).where(and(eq(payoutSchedules.id, schedule.id), eq(payoutSchedules.userId, ownerId))),
-    db.insert(activityLogs).values({
-      id: crypto.randomUUID(),
-      userId: ownerId,
+    }),
+    setOp(activityLogs(ownerId).doc(logId), {
+      id: logId,
       investmentId: schedule.investmentId,
+      actorType: "user",
       action: input.outcome === "received" ? "payout-confirmed" : "payout-not-received",
       entityType: "payout",
       entityId: transactionId,
       summary: input.outcome === "received"
-        ? `Payout for ${investment.name} confirmed as ${status}`
-        : `Payout for ${investment.name} marked not received`,
+        ? `Payout for ${investment.investmentName} confirmed as ${status}`
+        : `Payout for ${investment.investmentName} marked not received`,
       previousSnapshot: previous ? JSON.stringify({
         status: previous.status,
         receivedAmountPaise: previous.receivedAmountPaise,
@@ -124,10 +121,10 @@ export async function POST(request: Request) {
     }),
   ];
 
+  const tdsRecordId = crypto.randomUUID();
   const tdsOperation = input.outcome === "received"
-    ? db.insert(tdsRecords).values({
-      id: crypto.randomUUID(),
-      userId: ownerId,
+    ? setOp(tdsRecords(ownerId).doc(tdsRecordId), {
+      id: tdsRecordId,
       investmentId: schedule.investmentId,
       payoutScheduleId: schedule.id,
       financialYear: schedule.financialYear,
@@ -136,15 +133,16 @@ export async function POST(request: Request) {
       expectedTdsPaise: schedule.expectedTdsPaise,
       actualTdsPaise: input.actualTdsPaise ?? null,
       differencePaise: input.actualTdsPaise === undefined ? null : schedule.expectedTdsPaise - input.actualTdsPaise,
+      certificateReceived: false,
       status: "pending",
       createdAt,
       updatedAt: createdAt,
+      deletedAt: null,
     })
     : null;
 
   try {
-    const batch = tdsOperation ? [...operations, tdsOperation] : operations;
-    await db.batch(batch as unknown as Parameters<typeof db.batch>[0]);
+    await commitAll(tdsOperation ? [...operations, tdsOperation] : operations);
     const backupWarning = await createUserBackup(identity)
       .then(() => null)
       .catch(() => "Payout saved, but the recovery snapshot could not be refreshed");

@@ -1,10 +1,20 @@
-import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { calculateFinancialYear, generatePayoutSchedule } from "@/core/finance/calculations";
 import type { InvestmentDraft } from "@/core/models/financial";
-import { getDb } from "@/db";
-import { activityLogs, investments, payoutSchedules, payoutTransactions } from "@/db/schema";
+import {
+  activityLogs,
+  type BatchOperation,
+  commitAll,
+  firstDoc,
+  investments,
+  listDocs,
+  payoutSchedules,
+  payoutTransactions,
+  readDoc,
+  setOp,
+  updateOp,
+} from "@/db";
 import { createUserBackup } from "@/lib/backups";
 import { requireEntitlement } from "@/lib/billing";
 import { authenticatedRequest, hasRecentAuthentication } from "@/lib/firebase-auth";
@@ -62,10 +72,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const parsed = updateInput.safeParse(body);
   if (!parsed.success) return Response.json({ error: "Please check the investment details", issues: parsed.error.flatten() }, { status: 400 });
   const input = parsed.data;
-  const db = getDb();
-  const [existing] = await db.select().from(investments).where(and(
-    eq(investments.id, id), eq(investments.userId, identity.uid), isNull(investments.deletedAt),
-  )).limit(1);
+  const stored = await readDoc(investments(identity.uid).doc(id));
+  const existing = stored && !stored.deletedAt ? stored : null;
   if (!existing) return Response.json({ error: "Investment not found" }, { status: 404 });
 
   const financialChanged = financialSignature(existing) !== financialSignature({
@@ -83,8 +91,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     expectedTdsRateBps: input.expectedTdsRateBps,
   });
   if (financialChanged) {
-    const [settled] = await db.select({ id: payoutTransactions.id }).from(payoutTransactions)
-      .where(and(eq(payoutTransactions.investmentId, id), eq(payoutTransactions.userId, identity.uid), isNull(payoutTransactions.deletedAt))).limit(1);
+    const settled = await firstDoc(payoutTransactions(identity.uid)
+      .where("deletedAt", "==", null)
+      .where("investmentId", "==", id));
     if (settled) return Response.json({ error: "Financial terms cannot be replaced after a payout is recorded. Archive this investment and create a revised record." }, { status: 409 });
   }
 
@@ -99,35 +108,45 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const schedule = generatePayoutSchedule(draft);
   const now = new Date().toISOString();
   const nextRevision = existing.revision + 1;
-  const operations = [
-    db.update(investments).set({
+  const operations: BatchOperation[] = [
+    updateOp(investments(identity.uid).doc(id), {
       investmentType: input.investmentType, investmentName: input.investmentName, issuerNameSnapshot: input.issuerName,
       investmentNumber: input.investmentNumber, principalPaise: input.principalPaise, interestRateBps: input.interestRateBps,
       interestType: input.interestType, compoundingFrequency: input.compoundingFrequency, dayCountBasis: input.dayCountBasis,
       payoutFrequency: input.payoutFrequency, investmentDate: input.investmentDate, firstPayoutDate: input.firstPayoutDate,
-      maturityDate: input.maturityDate, expectedMaturityPaise: input.expectedMaturityPaise, tdsApplicable: input.tdsApplicable,
+      maturityDate: input.maturityDate, expectedMaturityPaise: input.expectedMaturityPaise ?? null, tdsApplicable: input.tdsApplicable,
       expectedTdsRateBps: input.expectedTdsRateBps, panLinked: input.panLinked, declarationApplicable: input.declarationApplicable,
-      bankName: input.bankName, accountLast4: input.accountLast4 || null, paymentMode: input.paymentMode, nominee: input.nominee,
-      brokerPlatform: input.brokerPlatform, advisorName: input.advisorName, notes: input.notes,
+      bankName: input.bankName ?? null, accountLast4: input.accountLast4 || null, paymentMode: input.paymentMode ?? null, nominee: input.nominee ?? null,
+      brokerPlatform: input.brokerPlatform ?? null, advisorName: input.advisorName ?? null, notes: input.notes ?? null,
       financialYear: calculateFinancialYear(input.investmentDate), revision: nextRevision, updatedAt: now,
-    }).where(eq(investments.id, id)),
+    }),
   ];
   if (financialChanged) {
-    operations.push(db.update(payoutSchedules).set({ deletedAt: now, updatedAt: now }).where(and(eq(payoutSchedules.investmentId, id), isNull(payoutSchedules.deletedAt))) as never);
-    for (const payout of schedule) operations.push(db.insert(payoutSchedules).values({
-      id: crypto.randomUUID(), investmentId: id, userId: identity.uid, dueDate: payout.dueDate,
-      financialYear: payout.financialYear, grossInterestPaise: Number(payout.grossInterestPaise), expectedTdsRateBps: input.expectedTdsRateBps,
-      expectedTdsPaise: Number(payout.expectedTdsPaise), expectedNetPaise: Number(payout.expectedNetPaise), status: payout.status,
-      revision: nextRevision, createdAt: now, updatedAt: now,
-    }) as never);
+    // Firestore has no "update where"; the rows to retire are read first.
+    const live = await listDocs(payoutSchedules(identity.uid)
+      .where("deletedAt", "==", null)
+      .where("investmentId", "==", id));
+    for (const row of live) {
+      operations.push(updateOp(payoutSchedules(identity.uid).doc(row.id), { deletedAt: now, updatedAt: now }));
+    }
+    for (const payout of schedule) {
+      const payoutId = crypto.randomUUID();
+      operations.push(setOp(payoutSchedules(identity.uid).doc(payoutId), {
+        id: payoutId, investmentId: id, dueDate: payout.dueDate,
+        financialYear: payout.financialYear, grossInterestPaise: Number(payout.grossInterestPaise), expectedTdsRateBps: input.expectedTdsRateBps,
+        expectedTdsPaise: Number(payout.expectedTdsPaise), expectedNetPaise: Number(payout.expectedNetPaise), status: payout.status,
+        source: "generated", revision: nextRevision, createdAt: now, updatedAt: now, deletedAt: null,
+      }));
+    }
   }
-  operations.push(db.insert(activityLogs).values({
-    id: crypto.randomUUID(), userId: identity.uid, investmentId: id, action: "updated", entityType: "investment", entityId: id,
+  const logId = crypto.randomUUID();
+  operations.push(setOp(activityLogs(identity.uid).doc(logId), {
+    id: logId, investmentId: id, actorType: "user", action: "updated", entityType: "investment", entityId: id,
     summary: financialChanged ? "Investment terms updated and future schedule regenerated" : "Investment references updated",
     previousSnapshot: JSON.stringify({ revision: existing.revision, name: existing.investmentName }),
     nextSnapshot: JSON.stringify({ revision: nextRevision, name: input.investmentName }), createdAt: now,
-  }) as never);
-  await db.batch(operations as unknown as Parameters<typeof db.batch>[0]);
+  }));
+  await commitAll(operations);
   const backupWarning = await createUserBackup(identity).then(() => null).catch(() => "Firebase recovery backup is pending configuration");
   return Response.json({ investmentId: id, scheduleCount: schedule.length, warning: backupWarning });
 }
@@ -142,20 +161,40 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
 }
 
 async function updateStatus(identity: NonNullable<Awaited<ReturnType<typeof authenticatedRequest>>>, id: string, action: "mature" | "close" | "archive" | "reactivate") {
-  const db = getDb();
-  const [existing] = await db.select().from(investments).where(and(eq(investments.id, id), eq(investments.userId, identity.uid))).limit(1);
+  const existing = await readDoc(investments(identity.uid).doc(id));
   if (!existing || (existing.deletedAt && action !== "reactivate")) return Response.json({ error: "Investment not found" }, { status: 404 });
   const now = new Date().toISOString();
   const nextStatus = action === "mature" ? "matured" : action === "reactivate" ? "active" : "closed";
-  await db.batch([
-    db.update(investments).set({ status: nextStatus, deletedAt: action === "archive" ? now : action === "reactivate" ? null : existing.deletedAt, revision: existing.revision + 1, updatedAt: now }).where(eq(investments.id, id)),
-    db.insert(activityLogs).values({ id: crypto.randomUUID(), userId: identity.uid, investmentId: id, action, entityType: "investment", entityId: id, summary: `Investment ${action === "archive" ? "archived" : `marked ${nextStatus}`}`, previousSnapshot: JSON.stringify({ status: existing.status }), nextSnapshot: JSON.stringify({ status: nextStatus }), createdAt: now }),
+  const logId = crypto.randomUUID();
+  await commitAll([
+    updateOp(investments(identity.uid).doc(id), { status: nextStatus, deletedAt: action === "archive" ? now : action === "reactivate" ? null : existing.deletedAt ?? null, revision: existing.revision + 1, updatedAt: now }),
+    setOp(activityLogs(identity.uid).doc(logId), { id: logId, investmentId: id, actorType: "user", action, entityType: "investment", entityId: id, summary: `Investment ${action === "archive" ? "archived" : `marked ${nextStatus}`}`, previousSnapshot: JSON.stringify({ status: existing.status }), nextSnapshot: JSON.stringify({ status: nextStatus }), createdAt: now }),
   ]);
   await createUserBackup(identity).catch(() => undefined);
   return Response.json({ investmentId: id, status: nextStatus, archived: action === "archive" });
 }
 
-function financialSignature(value: Record<string, unknown>) {
+/**
+ * The terms that decide whether the payout schedule has to be regenerated.
+ * Named explicitly rather than taken as a loose record, so adding a financial
+ * field to the investment fails here until it is considered.
+ */
+type FinancialTerms = {
+  principalPaise: number;
+  interestRateBps: number;
+  interestType: string;
+  compoundingFrequency: string;
+  dayCountBasis: string;
+  payoutFrequency: string;
+  investmentDate: string;
+  firstPayoutDate?: string | null;
+  maturityDate: string;
+  expectedMaturityPaise?: number | null;
+  tdsApplicable: boolean;
+  expectedTdsRateBps: number;
+};
+
+function financialSignature(value: FinancialTerms) {
   return JSON.stringify([
     value.principalPaise, value.interestRateBps, value.interestType, value.compoundingFrequency, value.dayCountBasis,
     value.payoutFrequency, value.investmentDate, value.firstPayoutDate, value.maturityDate, value.expectedMaturityPaise,

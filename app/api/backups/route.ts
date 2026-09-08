@@ -25,7 +25,9 @@ export async function POST(request: Request) {
   const limited = await rateLimit(request, "backup", identity.uid, 6, 60 * 60 * 1000);
   if (limited) return limited;
   try {
-    return Response.json({ backup: await createUserBackup(identity) }, { status: 201 });
+    // An explicit request for a backup always builds a fresh snapshot; the
+    // per-day reuse exists only to stop routine mutations from rebuilding it.
+    return Response.json({ backup: await createUserBackup(identity, { force: true }) }, { status: 201 });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Backup failed" }, { status: 503 });
   }

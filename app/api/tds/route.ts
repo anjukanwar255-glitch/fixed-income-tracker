@@ -1,11 +1,9 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb } from "@/db";
+import { activityLogs, commitAll, firstDoc, payoutSchedules, payoutTransactions, readDoc, setOp, tdsRecords } from "@/db";
 import { authenticatedRequest } from "@/lib/firebase-auth";
 import { requireEntitlement } from "@/lib/billing";
 import { createUserBackup } from "@/lib/backups";
-import { activityLogs, payoutSchedules, payoutTransactions, tdsRecords } from "@/db/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -27,20 +25,14 @@ export async function POST(request: Request) {
   const parsed = tdsVerification.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Please check the TDS verification details" }, { status: 400 });
 
-  const db = getDb();
   const input = parsed.data;
-  const [schedule] = await db.select().from(payoutSchedules).where(and(
-    eq(payoutSchedules.id, input.scheduleId),
-    eq(payoutSchedules.userId, ownerId),
-    isNull(payoutSchedules.deletedAt),
-  )).limit(1);
-  if (!schedule) return Response.json({ error: "Payout not found" }, { status: 404 });
+  const schedule = await readDoc(payoutSchedules(ownerId).doc(input.scheduleId));
+  if (!schedule || schedule.deletedAt) return Response.json({ error: "Payout not found" }, { status: 404 });
 
-  const [transaction] = await db.select().from(payoutTransactions).where(and(
-    eq(payoutTransactions.payoutScheduleId, schedule.id),
-    eq(payoutTransactions.userId, ownerId),
-    isNull(payoutTransactions.deletedAt),
-  )).orderBy(desc(payoutTransactions.createdAt)).limit(1);
+  const transaction = await firstDoc(payoutTransactions(ownerId)
+    .where("deletedAt", "==", null)
+    .where("payoutScheduleId", "==", schedule.id)
+    .orderBy("createdAt", "desc"));
   const actualTdsPaise = transaction?.actualTdsPaise ?? null;
   const comparisonPaise = actualTdsPaise ?? schedule.expectedTdsPaise;
   const differencePaise = comparisonPaise - input.reflectedAmountPaise;
@@ -49,10 +41,10 @@ export async function POST(request: Request) {
   const createdAt = new Date().toISOString();
 
   try {
-    await db.batch([
-      db.insert(tdsRecords).values({
+    const logId = crypto.randomUUID();
+    await commitAll([
+      setOp(tdsRecords(ownerId).doc(recordId), {
         id: recordId,
-        userId: ownerId,
         investmentId: schedule.investmentId,
         payoutScheduleId: schedule.id,
         financialYear: schedule.financialYear,
@@ -64,15 +56,17 @@ export async function POST(request: Request) {
         reflectedAmountPaise: input.reflectedAmountPaise,
         differencePaise,
         verificationDate: input.verificationDate,
+        certificateReceived: false,
         status,
         remarks: input.remarks || null,
         createdAt,
         updatedAt: createdAt,
+        deletedAt: null,
       }),
-      db.insert(activityLogs).values({
-        id: crypto.randomUUID(),
-        userId: ownerId,
+      setOp(activityLogs(ownerId).doc(logId), {
+        id: logId,
         investmentId: schedule.investmentId,
+        actorType: "user",
         action: "tds-verified",
         entityType: "tds-record",
         entityId: recordId,

@@ -1,8 +1,6 @@
-import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb } from "@/db";
-import { activityLogs, trialClaims, users } from "@/db/schema";
+import { activityLogs, commitAll, readDoc, setOp, trialClaims, updateOp, userDoc } from "@/db";
 import { startTrial, trialIdentityHash } from "@/lib/billing";
 import { createUserBackup } from "@/lib/backups";
 import { authenticatedRequest, authenticatedUser } from "@/lib/firebase-auth";
@@ -42,19 +40,21 @@ export async function GET() {
   if (!owner) return Response.json({ error: "Authentication required" }, { status: 401 });
 
   try {
-    const db = getDb();
-    const [profile] = await db.select({
-      fullName: users.fullName,
-      email: users.email,
-      panMasked: users.panMasked,
-      dateOfBirth: users.dateOfBirth,
-      mobileE164: users.mobileE164,
-    }).from(users)
-      .where(and(eq(users.authSubject, owner.uid), isNull(users.deletedAt)))
-      .limit(1);
+    const stored = await readDoc(userDoc(owner.uid));
+    // Only these fields go to the client; the stored document also holds the
+    // trial and consent timestamps, which the profile screen does not read.
+    const profile = stored && !stored.deletedAt
+      ? {
+        fullName: stored.fullName,
+        email: stored.email ?? null,
+        panMasked: stored.panMasked ?? null,
+        dateOfBirth: stored.dateOfBirth ?? null,
+        mobileE164: stored.mobileE164 ?? null,
+      }
+      : null;
 
     // A missing row and a row with no name both mean "setup not finished".
-    return Response.json({ profile: profile ?? null, complete: Boolean(profile?.fullName) });
+    return Response.json({ profile, complete: Boolean(profile?.fullName) });
   } catch {
     return Response.json({ error: "Profile is temporarily unavailable" }, { status: 503 });
   }
@@ -72,39 +72,22 @@ export async function POST(request: Request) {
   }
 
   const input = parsed.data;
-  const db = getDb();
   const now = new Date().toISOString();
   const panMasked = input.pan ? maskPan(input.pan) : null;
 
   try {
-    const [existing] = await db.select({ id: users.id, fullName: users.fullName, trialStartedAt: users.trialStartedAt }).from(users)
-      .where(eq(users.authSubject, owner.uid)).limit(1);
+    const existing = await readDoc(userDoc(owner.uid));
     if (!existing && !input.acceptedTerms) {
       return Response.json({ error: "Accept the Terms and Privacy Policy to create your account" }, { status: 400 });
     }
     const identityHash = existing ? null : await trialIdentityHash(owner);
-    const [priorTrial] = identityHash
-      ? await db.select({ claimedAt: trialClaims.claimedAt }).from(trialClaims).where(eq(trialClaims.identityHash, identityHash)).limit(1)
-      : [];
+    const priorTrial = identityHash ? await readDoc(trialClaims().doc(identityHash)) : null;
     const trial = priorTrial ? { trialStartedAt: now, trialEndsAt: now } : startTrial(new Date(now));
 
-    const profileWrite = db.insert(users).values({
-      id: owner.uid,
-      authSubject: owner.uid,
-      fullName: input.fullName,
-      email: input.email || owner.email,
-      mobileE164: owner.phoneNumber,
-      panMasked,
-      dateOfBirth: input.dateOfBirth || null,
-      trialStartedAt: trial.trialStartedAt,
-      trialEndsAt: trial.trialEndsAt,
-      termsAcceptedAt: input.acceptedTerms ? now : null,
-      privacyAcceptedAt: input.acceptedTerms ? now : null,
-      createdAt: now,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: users.authSubject,
-      set: {
+    // The upsert is split, because creating and updating never wrote the same
+    // fields: trial and consent timestamps are set once, at account creation.
+    const profileWrite = existing
+      ? updateOp(userDoc(owner.uid), {
         fullName: input.fullName,
         email: input.email || owner.email,
         mobileE164: owner.phoneNumber,
@@ -114,12 +97,28 @@ export async function POST(request: Request) {
         // so an empty field means "leave it as it is", not "clear it". Email and
         // date of birth are readable, so clearing those is taken at face value.
         ...(panMasked ? { panMasked } : {}),
-      },
-    });
+      })
+      : setOp(userDoc(owner.uid), {
+        id: owner.uid,
+        fullName: input.fullName,
+        email: input.email || owner.email,
+        mobileE164: owner.phoneNumber,
+        panMasked,
+        dateOfBirth: input.dateOfBirth || null,
+        role: "user",
+        trialStartedAt: trial.trialStartedAt,
+        trialEndsAt: trial.trialEndsAt,
+        termsAcceptedAt: input.acceptedTerms ? now : null,
+        privacyAcceptedAt: input.acceptedTerms ? now : null,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
 
-    const activityWrite = db.insert(activityLogs).values({
-      id: crypto.randomUUID(),
-      userId: owner.uid,
+    const logId = crypto.randomUUID();
+    const activityWrite = setOp(activityLogs(owner.uid).doc(logId), {
+      id: logId,
+      actorType: "user",
       action: existing?.fullName ? "profile-updated" : "profile-created",
       entityType: "user",
       entityId: owner.uid,
@@ -129,9 +128,16 @@ export async function POST(request: Request) {
       nextSnapshot: JSON.stringify({ fullName: input.fullName, panRecorded: Boolean(panMasked) }),
       createdAt: now,
     });
-    const operations: unknown[] = [profileWrite, activityWrite];
-    if (identityHash && !priorTrial) operations.push(db.insert(trialClaims).values({ identityHash, originalUserId: owner.uid, claimedAt: now }).onConflictDoNothing());
-    await db.batch(operations as unknown as Parameters<typeof db.batch>[0]);
+    await commitAll([profileWrite, activityWrite]);
+
+    // Written outside the batch and tolerant of a race, matching the previous
+    // "do nothing on conflict": a claim that already exists must not be moved
+    // forward, and must not fail the profile save either.
+    if (identityHash && !priorTrial) {
+      await trialClaims().doc(identityHash)
+        .create({ identityHash, originalUserId: owner.uid, claimedAt: now })
+        .catch(() => undefined);
+    }
 
     const backupWarning = await createUserBackup(owner).then(() => null).catch(() => "Automatic Firebase backup is not configured yet");
     return Response.json({ complete: true, backupWarning }, { status: existing ? 200 : 201 });

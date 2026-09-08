@@ -112,7 +112,7 @@ export async function downloadDocument(documentId: string, fileName: string): Pr
 }
 
 /**
- * Sends document bytes without multipart encoding. Vinext reserves multipart
+ * Sends document bytes without multipart encoding. Next.js reserves multipart
  * POST requests for React server actions, whereas a binary body is routed to
  * the API handler normally. The server still detects the real file signature
  * and treats every value below as untrusted metadata.

@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// Every read and write goes through the Next.js route handlers, which verify a
+// Firebase ID token and then use the Admin SDK. Admin access bypasses these
+// rules, so denying everything here closes direct client access to the
+// database without affecting the application.
+//
+// This is deliberate rather than incidental: the route handlers enforce
+// entitlement, rate limits, ownership and financial invariants that rules
+// cannot express. A client that could write Firestore directly would bypass
+// all of it.
+//
+// Firebase Storage is different — clients do upload and download objects
+// directly — and keeps its own ownership rules in `storage.rules`.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

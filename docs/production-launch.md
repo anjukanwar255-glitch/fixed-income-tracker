@@ -13,8 +13,8 @@ Do not enable public registration until every item in the activation section is 
    ```
 
 4. Enable Phone and Google under Authentication → Sign-in method. Restrict the SMS region policy to supported markets and keep test numbers for QA.
-5. Confirm the production Sites hostname and `localhost` are in Authentication → Authorized domains.
-6. Register the web app with Firebase App Check using reCAPTCHA Enterprise, set `FIREBASE_APPCHECK_SITE_KEY` in the Sites runtime, verify real traffic, then enforce App Check for Authentication, Firestore and Cloud Storage.
+5. Confirm `portfolio.cartranspro.com` and `localhost` are in Authentication → Authorized domains.
+6. Register the web app with Firebase App Check using reCAPTCHA Enterprise, set `FIREBASE_APPCHECK_SITE_KEY` in `apphosting.yaml`, verify real traffic, then enforce App Check for Authentication, Firestore and Cloud Storage.
 7. Create Firebase/Google Cloud billing budgets and anomaly alerts.
 
 The default bucket expected by the app is `portfolio-7c0d0.firebasestorage.app`.
@@ -43,7 +43,7 @@ Use the base64 value for `BACKUP_ENCRYPTION_KEY` and a separate random value for
 
 3. Store the returned IDs in the matching `RAZORPAY_PLAN_*` variables. Checkout re-fetches the plan and refuses any amount, currency or cadence mismatch.
 4. Set the Live key ID/secret and a separate webhook secret.
-5. Register `https://fixed-income-tracker.cartranssolutioncomp.chatgpt.site/api/billing/webhook` for subscription authenticated, activated, charged, pending, halted, paused, resumed, cancelled and completed events.
+5. Register `https://portfolio.cartranspro.com/api/billing/webhook` for subscription authenticated, activated, charged, pending, halted, paused, resumed, cancelled and completed events.
 6. Run test-mode journeys first: successful mandate, declined payment, duplicate webhook, delayed webhook, cancel-at-cycle-end, immediate cancellation during account deletion and trial expiry.
 7. Decide with a qualified accountant whether displayed prices include applicable taxes and configure compliant invoices/receipts before collecting live payments.
 
@@ -51,15 +51,15 @@ Never grant access from the browser callback. The app grants paid access only fr
 
 ## 4. Data and recovery
 
-- Apply all packaged D1 migrations before serving the new release.
-- D1 Time Travel is the authoritative full-database rollback mechanism. Record the database bookmark before every migration and perform a quarterly restore rehearsal into a separate test database.
+- Deploy `firestore.indexes.json` before serving the new release. A query whose composite index is missing fails at runtime, not at build time.
+- Enable Firestore point-in-time recovery; it is the authoritative full-database rollback mechanism. Perform a quarterly restore rehearsal into a separate test database.
 - User snapshots are encrypted with AES-GCM, written as `latest.enc` plus one daily object, and retained for 35 days. Profile → Test recovery downloads and authenticates the latest snapshot.
-- The account-setup recovery button restores only missing rows and stops if it sees newer investment IDs. Billing records are deliberately not restored from a user snapshot; recover/reconcile them from D1 and Razorpay.
+- The account-setup recovery button restores only missing rows and stops if it sees newer investment IDs. Billing records are deliberately not restored from a user snapshot; recover/reconcile them from Firestore and Razorpay.
 - Test document download, deletion, account deletion and restore with Firebase App Check enforcement enabled.
 
 ## 5. Security and operations
 
-- Put Cloudflare rate limiting/WAF rules in front of OTP-adjacent, upload, checkout and webhook endpoints. The in-process limiter is only a second layer.
+- Put Cloud Armor rate limiting/WAF rules in front of OTP-adjacent, upload, checkout and webhook endpoints. The in-process limiter is only a second layer.
 - Alert on elevated HTTP 401/402/429/500 rates, failed webhooks, Firebase Storage failures and backup age over 24 hours after a portfolio change.
 - Review CSP violations before adding any third-party script host. Keep HSTS, frame-ancestors, nosniff and no-store API headers enabled.
 - Run dependency, secret and static-analysis scanning in CI. Re-test ownership isolation with two accounts for every data endpoint.

@@ -1,10 +1,8 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { getDb } from "@/db";
+import { documents, investments, listDocs, readDoc } from "@/db";
 import { authenticatedRequest, authenticatedUser } from "@/lib/firebase-auth";
 import { deleteFirebaseObject, uploadFirebaseObject } from "@/lib/firebase-storage";
 import { MAX_DOCUMENT_BYTES, validateDocumentFile } from "@/lib/file-validation";
-import { documents, investments } from "@/db/schema";
 import { requireEntitlement } from "@/lib/billing";
 import { createUserBackup } from "@/lib/backups";
 import { rateLimit } from "@/lib/rate-limit";
@@ -27,27 +25,26 @@ export async function GET(request: Request) {
   const investmentId = new URL(request.url).searchParams.get("investmentId");
   if (!investmentId) return Response.json({ error: "Investment is required" }, { status: 400 });
 
-  const db = getDb();
-  const [ownedInvestment] = await db.select({ id: investments.id }).from(investments).where(and(
-    eq(investments.id, investmentId),
-    eq(investments.userId, ownerId),
-    isNull(investments.deletedAt),
-  )).limit(1);
-  if (!ownedInvestment) return Response.json({ error: "Investment not found" }, { status: 404 });
+  const ownedInvestment = await readDoc(investments(ownerId).doc(investmentId));
+  if (!ownedInvestment || ownedInvestment.deletedAt) {
+    return Response.json({ error: "Investment not found" }, { status: 404 });
+  }
 
-  const rows = await db.select({
-    id: documents.id,
-    documentName: documents.documentName,
-    documentType: documents.documentType,
-    financialYear: documents.financialYear,
-    mimeType: documents.mimeType,
-    sizeBytes: documents.sizeBytes,
-    createdAt: documents.createdAt,
-  }).from(documents).where(and(
-    eq(documents.investmentId, investmentId),
-    eq(documents.userId, ownerId),
-    isNull(documents.deletedAt),
-  )).orderBy(desc(documents.createdAt));
+  const stored = await listDocs(documents(ownerId)
+    .where("deletedAt", "==", null)
+    .where("investmentId", "==", investmentId)
+    .orderBy("createdAt", "desc"));
+  // The stored document carries the object key and hash; only these fields are
+  // sent to the client, as before.
+  const rows = stored.map((row) => ({
+    id: row.id,
+    documentName: row.documentName,
+    documentType: row.documentType,
+    financialYear: row.financialYear,
+    mimeType: row.mimeType,
+    sizeBytes: row.sizeBytes,
+    createdAt: row.createdAt,
+  }));
 
   return Response.json({ documents: rows });
 }
@@ -94,13 +91,10 @@ export async function POST(request: Request) {
     return Response.json({ error: error instanceof Error ? error.message : "The document is not valid" }, { status: 400 });
   }
 
-  const db = getDb();
-  const [ownedInvestment] = await db.select({ id: investments.id }).from(investments).where(and(
-    eq(investments.id, investmentId),
-    eq(investments.userId, ownerId),
-    isNull(investments.deletedAt),
-  )).limit(1);
-  if (!ownedInvestment) return Response.json({ error: "Investment not found" }, { status: 404 });
+  const ownedInvestment = await readDoc(investments(ownerId).doc(investmentId));
+  if (!ownedInvestment || ownedInvestment.deletedAt) {
+    return Response.json({ error: "Investment not found" }, { status: 404 });
+  }
 
   const documentId = crypto.randomUUID();
   const objectKey = `users/${ownerId}/documents/${investmentId}/${documentId}.${validated.extension}`;
@@ -113,9 +107,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    await db.insert(documents).values({
+    await documents(ownerId).doc(documentId).set({
       id: documentId,
-      userId: ownerId,
       investmentId,
       documentName: documentName.slice(0, 180),
       documentType: documentType.slice(0, 80),
@@ -127,8 +120,10 @@ export async function POST(request: Request) {
       sha256: validated.sha256,
       validationStatus: "validated",
       validatedAt: createdAt,
+      version: 1,
       createdAt,
       updatedAt: createdAt,
+      deletedAt: null,
     });
   } catch {
     await deleteFirebaseObject(identity.token, objectKey, identity.appCheckToken).catch(() => undefined);

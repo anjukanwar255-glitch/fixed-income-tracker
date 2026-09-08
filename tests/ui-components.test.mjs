@@ -36,7 +36,9 @@ async function readCssTree(directory) {
 }
 
 test("emits the catalog's animation and scrolling utilities", async () => {
-  const css = await readCssTree(path.join(root, "dist"));
+  // Next writes hashed stylesheets under `.next/static`; the Cloudflare build
+  // this replaced emitted them into `dist`.
+  const css = await readCssTree(path.join(root, ".next", "static"));
 
   assert.match(css, /--tw-enter-opacity/);
   assert.match(css, /scrollbar-width:\s*thin/);

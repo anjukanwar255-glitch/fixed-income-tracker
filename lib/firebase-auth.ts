@@ -3,10 +3,15 @@ import { headers } from "next/headers";
 import { FIREBASE_PROJECT_ID } from "@/lib/firebase-config";
 
 /**
- * Firebase ID token verification for the Cloudflare Workers runtime.
+ * Firebase ID token verification.
  *
- * `firebase-admin` targets Node and cannot run here, so tokens are verified
- * directly against Google's published signing keys:
+ * This was written because `firebase-admin` could not run on Cloudflare
+ * Workers. The Admin SDK is available now that the app runs on Node, and
+ * `verifyIdToken` would be the idiomatic call, but this implementation is
+ * kept deliberately: it is already covered by tests, and swapping the code
+ * path that authenticates every request is a change worth making on its own
+ * rather than inside a platform migration. Tokens are verified directly
+ * against Google's published signing keys:
  *   - RS256 signature checked with WebCrypto
  *   - issuer, audience, subject and lifetime checked per Firebase's contract
  *
