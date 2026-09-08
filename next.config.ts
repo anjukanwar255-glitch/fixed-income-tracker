@@ -36,15 +36,29 @@ const securityHeaders = [
   { key: "content-security-policy", value: contentSecurityPolicy },
 ];
 
-// Primary-domain enforcement was attempted here via redirects()'s Host-header
-// matching and reverted: on App Hosting, the Next.js server sees the internal
-// Cloud Run hostname as the request Host regardless of which public domain
-// the client used, so the "redirect away from the alternate host" rule
-// matched every request — including ones to the real custom domain — and
-// portfolio.cartranspro.com redirected to itself in a loop. Confirmed live
-// (curl -L hit curl's 50-redirect cap). Needs a header that survives the
-// proxy, such as x-forwarded-host, verified against real request headers
-// before it goes back in. See docs/firebase-migration-plan.md.
+/**
+ * The app is meant to be reachable only at portfolio.cartranspro.com, but App
+ * Hosting also keeps its generated `*.hosted.app` domain serving the same
+ * backend and offers no way to switch that off.
+ *
+ * This matches on `x-forwarded-host`, not the request Host. Behind App
+ * Hosting's CDN and Cloud Run, the Host header is always the internal
+ * `…run.app` hostname whichever public domain the client used — an earlier
+ * attempt matched on Host and consequently redirected every request,
+ * including ones to the custom domain, which then redirected to itself in a
+ * loop. Confirmed against live request headers:
+ *
+ *   via portfolio.cartranspro.com → host: …run.app, x-forwarded-host: portfolio.cartranspro.com
+ *   via …hosted.app              → host: …run.app, x-forwarded-host: …hosted.app
+ *
+ * Matching one exact alternate hostname rather than "anything that isn't
+ * primary" keeps this fail-safe: a request with no `x-forwarded-host` at all
+ * (local development) matches nothing and is served normally. The raw Cloud
+ * Run URL needs no rule — it answers 403 to the public, reachable only by the
+ * CDN in front of it.
+ */
+const PRIMARY_HOST = "portfolio.cartranspro.com";
+const GENERATED_HOST = "fixed-income-tracker--portfolio-7c0d0.asia-southeast1.hosted.app";
 
 const nextConfig: NextConfig = {
   async headers() {
@@ -53,6 +67,16 @@ const nextConfig: NextConfig = {
       {
         source: "/api/:path*",
         headers: [{ key: "cache-control", value: "no-store, max-age=0" }],
+      },
+    ];
+  },
+  async redirects() {
+    return [
+      {
+        source: "/:path*",
+        has: [{ type: "header" as const, key: "x-forwarded-host", value: GENERATED_HOST }],
+        destination: `https://${PRIMARY_HOST}/:path*`,
+        permanent: true,
       },
     ];
   },

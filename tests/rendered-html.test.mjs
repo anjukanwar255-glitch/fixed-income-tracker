@@ -85,3 +85,48 @@ test("API responses are never cached", async () => {
   assert.equal(response.status, 401);
   assert.match(response.headers.get("cache-control") ?? "", /no-store/);
 });
+
+/*
+ * Primary-domain enforcement.
+ *
+ * These set `x-forwarded-host`, which is what App Hosting's CDN uses to carry
+ * the client's original hostname and what the redirect matches on. An earlier
+ * version matched the request Host instead and looped in production, because
+ * behind Cloud Run the Host is always the internal `…run.app` name whichever
+ * public domain was used — so the case that matters most here is the last
+ * one: the primary host must not redirect to itself.
+ */
+const PRIMARY_HOST = "portfolio.cartranspro.com";
+const GENERATED_HOST = "fixed-income-tracker--portfolio-7c0d0.asia-southeast1.hosted.app";
+
+test("the generated App Hosting domain redirects to the primary domain", async () => {
+  const path = "/investments/example?tab=documents";
+  const response = await fetch(`${origin}${path}`, {
+    headers: { "x-forwarded-host": GENERATED_HOST, accept: "text/html" },
+    redirect: "manual",
+  });
+
+  assert.equal(response.status, 308);
+  assert.equal(response.headers.get("location"), `https://${PRIMARY_HOST}${path}`);
+});
+
+test("the primary domain is served, never redirected to itself", async () => {
+  const response = await fetch(origin, {
+    headers: { "x-forwarded-host": PRIMARY_HOST, accept: "text/html" },
+    redirect: "manual",
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("location"), null);
+});
+
+test("a request with no forwarded host is served normally", async () => {
+  // Local development, and anything else that reaches the server directly.
+  const response = await fetch(origin, {
+    headers: { accept: "text/html" },
+    redirect: "manual",
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("location"), null);
+});
