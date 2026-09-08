@@ -82,29 +82,59 @@ redirected to itself in a loop for several minutes before the revert deployed
 
 Local `next start` does not reproduce this: the Host header there is exactly
 what the client sets, which is not how App Hosting's CDN and load balancer
-forward requests. A correct version needs a header that survives the proxy —
-`x-forwarded-host` is the standard candidate — verified against real request
-headers before it goes near production again, not only against a local dev
-server. (Testing a Host-based redirect at all needs `node:http` directly
-rather than `fetch()`, which treats `Host` as a forbidden header and silently
-drops any attempt to set it — that reads as a mysterious 404, not an error.)
-Domain enforcement is not currently implemented; both the custom domain and
-the generated `*.hosted.app` URL serve the app.
+forward requests.
+
+**The working version matches `x-forwarded-host` instead**, chosen by reading
+the headers a deployed request actually carries rather than guessing again. A
+temporary debug route — echoing only routing headers, never the full set,
+which would have leaked authorization and cookies — reported from production:
+
+| Reached via | `host` | `x-forwarded-host` |
+| --- | --- | --- |
+| `portfolio.cartranspro.com` | `…run.app` | `portfolio.cartranspro.com` |
+| `…hosted.app` | `…run.app` | `…hosted.app` |
+
+So `Host` is always the internal Cloud Run name and only `x-forwarded-host`
+distinguishes the origins, which is exactly why the Host rule matched
+everything. The rule names one exact alternate hostname rather than
+"anything that isn't primary", so a request with no `x-forwarded-host` at all
+— local development — matches nothing and is served normally. The raw Cloud
+Run URL needs no rule: it answers 403 to the public, reachable only by the CDN
+in front of it.
+
+Two things worth keeping in mind when working on this again. `fetch()` cannot
+set a `Host` header at all — it is forbidden by the spec and silently dropped,
+which surfaces as a puzzling 404 rather than an error, so testing Host-based
+behaviour needs `node:http` directly; `x-forwarded-host` has no such
+restriction. And `apphosting:rollouts:list` does not return rollouts in
+chronological order, so "the last entry" is not "the newest rollout" — polling
+that way reports an older rollout's success and makes a deploy look finished
+while the real one is still queued.
+
+App Check is configured. The reCAPTCHA Enterprise site key is registered
+against the `portfolio` web app — the app id the client bundle actually uses
+(`1:102035937741:web:ac6846499ce7b551eb0c84`); the two `fixed-income-tracker`
+web apps in the project were created incidentally by
+`apphosting:backends:create` and are unused. The key is public by design and
+lives in `apphosting.yaml`: it is served to every browser, and authorisation
+comes from Authentication and the App Check token, not from the key's secrecy.
+This mattered more than it looks — the client hard-blocks the whole app behind
+App Check initialisation, so until it was set, every visitor saw "Security
+check unavailable" rather than the app.
 
 Still outstanding:
 
-- App Check has no site key yet (`FIREBASE_APPCHECK_SITE_KEY` is unset), and
-  the client hard-blocks the entire app behind App Check initialization —
-  every visitor sees "Security check unavailable" until a reCAPTCHA Enterprise
-  key is created and registered. Both steps are Console-only; there is no CLI
-  path for either.
-- Razorpay is unconfigured (three variables are commented out of
+- Razorpay is unconfigured (its variables are commented out of
   `apphosting.yaml`), so billing is disabled and checkout will fail; the app
   degrades to trial-only rather than erroring.
-- The old OpenAI Sites deployment is still live at the old
-  `*.chatgpt.site` hostname. Left running deliberately as a fallback until the
-  Firebase deployment was confirmed working end to end; now that it is, it can
-  be decommissioned.
+- The old OpenAI Sites deployment is still live at the old `*.chatgpt.site`
+  hostname, and cannot be removed from here: it belongs to a platform with no
+  CLI or API available in this workspace, and `.openai/hosting.json` was
+  deleted during the migration. It answers 401 to anyone without an OpenAI
+  account, so it exposes nothing; it has to be deleted from wherever the site
+  was originally created. Its entry in Firebase Authentication's authorised
+  domains should be removed at the same time, not before — removing it earlier
+  breaks sign-in on a deployment that is still serving.
 
 ## What actually couples the app to Cloudflare
 
