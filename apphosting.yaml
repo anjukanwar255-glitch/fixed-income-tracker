@@ -44,12 +44,17 @@ env:
     availability:
       - RUNTIME
 
-  # The reCAPTCHA Enterprise site key, registered against the `portfolio` web
-  # app in App Check. Public by design: it is served to every browser by
+  # The reCAPTCHA Enterprise site key. This must be the exact key registered
+  # against the `portfolio` web app in App Check — the "Portfolio" key, not
+  # the later "portfolio-web" one. A token minted by any other key is rejected
+  # with auth/firebase-app-check-token-is-invalid, which blocks sign-in
+  # entirely once App Check is enforced on Authentication.
+  #
+  # Public by design: it is served to every browser by
   # /api/public/firebase-config, and authorisation still comes from
   # Authentication and the App Check token itself.
   - variable: FIREBASE_APPCHECK_SITE_KEY
-    value: 6LewU7AtAAAAAO6ukUrHjcEb4CPd70nmgWfxcff0
+    value: 6Lfvh6wtAAAAAOVTedKlVNtyMR1cWXA1h97_5zyU
     availability:
       - RUNTIME
 
