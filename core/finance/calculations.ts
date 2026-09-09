@@ -127,13 +127,21 @@ export function generatePayoutSchedule(draft: InvestmentDraft): PayoutProjection
     if (!last || last.getTime() !== maturity.getTime()) dates.push(maturity);
   }
 
-  let accrualStart = parseIsoDate(draft.investmentDate);
+  // Interest is earned on face value from the date it starts accruing, which
+  // for a deposit is simply the amount paid from the day it was placed. They
+  // diverge for a secondary-market bond: the price carries the seller's
+  // accrued interest, and the coupon still runs from the previous coupon date
+  // on the face amount.
+  const interestBase = draft.faceValuePaise ?? draft.principalPaise;
+  const interestStart = draft.interestStartDate ?? draft.investmentDate;
+
+  let accrualStart = parseIsoDate(interestStart);
   const compoundedMaturity = draft.interestType === "simple"
     ? null
     : calculateCompoundMaturity(
-        draft.principalPaise,
+        interestBase,
         draft.annualRateBps,
-        draft.investmentDate,
+        interestStart,
         draft.maturityDate,
         draft.compoundingFrequency ?? "quarterly",
         draft.dayCountBasis ?? "actual-365",
@@ -143,14 +151,14 @@ export function generatePayoutSchedule(draft: InvestmentDraft): PayoutProjection
     const dueDate = toIsoDate(date);
     let gross: bigint;
     if (draft.payoutFrequency === "on-maturity" && draft.expectedMaturityPaise !== undefined) {
-      gross = draft.expectedMaturityPaise > draft.principalPaise
-        ? draft.expectedMaturityPaise - draft.principalPaise
+      gross = draft.expectedMaturityPaise > interestBase
+        ? draft.expectedMaturityPaise - interestBase
         : 0n;
     } else if (draft.payoutFrequency === "on-maturity" && compoundedMaturity !== null) {
-      gross = compoundedMaturity - draft.principalPaise;
+      gross = compoundedMaturity - interestBase;
     } else {
       gross = calculateInterestForDates(
-        draft.principalPaise,
+        interestBase,
         draft.annualRateBps,
         toIsoDate(accrualStart),
         dueDate,

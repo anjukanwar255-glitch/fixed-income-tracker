@@ -37,12 +37,30 @@ export interface InvestmentDraft {
   issuer: string;
   investmentNumber: string;
   investmentDate: string;
+  /** What was actually paid, including any premium and accrued interest. */
   principalPaise: bigint;
+  /**
+   * The amount the issuer pays interest on, when that differs from what was
+   * paid. A bond bought on the secondary market settles at a price carrying
+   * the seller's accrued interest and any premium or discount, but the coupon
+   * is always calculated on face value. Left unset for a deposit bought at
+   * par, where `principalPaise` is the same thing.
+   */
+  faceValuePaise?: bigint;
   annualRateBps: number;
   interestType: InterestType;
   compoundingFrequency: CompoundingFrequency;
   dayCountBasis: DayCountBasis;
   payoutFrequency: PayoutFrequency;
+  /**
+   * When interest starts accruing, when that is not the purchase date. A
+   * secondary-market purchase settles part-way through a coupon period: the
+   * buyer pays the seller the interest accrued so far and then collects the
+   * whole coupon, so the first period runs from the previous coupon date
+   * rather than from settlement. Left unset for a deposit, where interest
+   * starts the day it is placed.
+   */
+  interestStartDate?: string;
   firstPayoutDate: string;
   maturityDate: string;
   expectedMaturityPaise?: bigint;

@@ -27,12 +27,14 @@ const updateInput = z.object({
   issuerName: z.string().trim().min(2).max(120),
   investmentNumber: z.string().trim().max(80).default(""),
   principalPaise: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  faceValuePaise: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   interestRateBps: z.number().int().min(0).max(100_000),
   interestType: z.enum(["simple", "compound", "cumulative"]),
   compoundingFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly"]),
   dayCountBasis: z.enum(["actual-365", "actual-actual", "30-360"]),
   payoutFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly", "on-maturity", "custom"]),
   investmentDate: z.string().date(),
+  interestStartDate: z.string().date().optional(),
   firstPayoutDate: z.string().date(),
   maturityDate: z.string().date(),
   expectedMaturityPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
@@ -78,12 +80,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const financialChanged = financialSignature(existing) !== financialSignature({
     principalPaise: input.principalPaise,
+    faceValuePaise: input.faceValuePaise ?? null,
     interestRateBps: input.interestRateBps,
     interestType: input.interestType,
     compoundingFrequency: input.compoundingFrequency,
     dayCountBasis: input.dayCountBasis,
     payoutFrequency: input.payoutFrequency,
     investmentDate: input.investmentDate,
+    interestStartDate: input.interestStartDate ?? null,
     firstPayoutDate: input.firstPayoutDate,
     maturityDate: input.maturityDate,
     expectedMaturityPaise: input.expectedMaturityPaise ?? null,
@@ -100,6 +104,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const draft: InvestmentDraft = {
     type: input.investmentType as InvestmentDraft["type"], name: input.investmentName, issuer: input.issuerName,
     investmentNumber: input.investmentNumber, investmentDate: input.investmentDate, principalPaise: BigInt(input.principalPaise),
+    faceValuePaise: input.faceValuePaise === undefined ? undefined : BigInt(input.faceValuePaise),
+    interestStartDate: input.interestStartDate,
     annualRateBps: input.interestRateBps, interestType: input.interestType, compoundingFrequency: input.compoundingFrequency,
     dayCountBasis: input.dayCountBasis, payoutFrequency: input.payoutFrequency, firstPayoutDate: input.firstPayoutDate,
     maturityDate: input.maturityDate, expectedMaturityPaise: input.expectedMaturityPaise === undefined ? undefined : BigInt(input.expectedMaturityPaise),
@@ -111,9 +117,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const operations: BatchOperation[] = [
     updateOp(investments(identity.uid).doc(id), {
       investmentType: input.investmentType, investmentName: input.investmentName, issuerNameSnapshot: input.issuerName,
-      investmentNumber: input.investmentNumber, principalPaise: input.principalPaise, interestRateBps: input.interestRateBps,
+      investmentNumber: input.investmentNumber, principalPaise: input.principalPaise, faceValuePaise: input.faceValuePaise ?? null,
+      interestRateBps: input.interestRateBps,
       interestType: input.interestType, compoundingFrequency: input.compoundingFrequency, dayCountBasis: input.dayCountBasis,
-      payoutFrequency: input.payoutFrequency, investmentDate: input.investmentDate, firstPayoutDate: input.firstPayoutDate,
+      payoutFrequency: input.payoutFrequency, investmentDate: input.investmentDate, interestStartDate: input.interestStartDate ?? null,
+      firstPayoutDate: input.firstPayoutDate,
       maturityDate: input.maturityDate, expectedMaturityPaise: input.expectedMaturityPaise ?? null, tdsApplicable: input.tdsApplicable,
       expectedTdsRateBps: input.expectedTdsRateBps, panLinked: input.panLinked, declarationApplicable: input.declarationApplicable,
       bankName: input.bankName ?? null, accountLast4: input.accountLast4 || null, paymentMode: input.paymentMode ?? null, nominee: input.nominee ?? null,
@@ -181,12 +189,14 @@ async function updateStatus(identity: NonNullable<Awaited<ReturnType<typeof auth
  */
 type FinancialTerms = {
   principalPaise: number;
+  faceValuePaise?: number | null;
   interestRateBps: number;
   interestType: string;
   compoundingFrequency: string;
   dayCountBasis: string;
   payoutFrequency: string;
   investmentDate: string;
+  interestStartDate?: string | null;
   firstPayoutDate?: string | null;
   maturityDate: string;
   expectedMaturityPaise?: number | null;
@@ -196,8 +206,9 @@ type FinancialTerms = {
 
 function financialSignature(value: FinancialTerms) {
   return JSON.stringify([
-    value.principalPaise, value.interestRateBps, value.interestType, value.compoundingFrequency, value.dayCountBasis,
-    value.payoutFrequency, value.investmentDate, value.firstPayoutDate, value.maturityDate, value.expectedMaturityPaise,
+    value.principalPaise, value.faceValuePaise ?? null, value.interestRateBps, value.interestType, value.compoundingFrequency,
+    value.dayCountBasis, value.payoutFrequency, value.investmentDate, value.interestStartDate ?? null,
+    value.firstPayoutDate, value.maturityDate, value.expectedMaturityPaise,
     value.tdsApplicable, value.expectedTdsRateBps,
   ]);
 }

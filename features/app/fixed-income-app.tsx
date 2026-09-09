@@ -261,6 +261,8 @@ type StoredInvestment = {
   investmentNumber: string;
   investmentDate: string;
   principalPaise: number;
+  faceValuePaise?: number | null;
+  interestStartDate?: string | null;
   interestRateBps: number;
   interestType: PortfolioInvestment["interestType"];
   compoundingFrequency: PortfolioInvestment["compoundingFrequency"];
@@ -314,6 +316,8 @@ function fromStoredInvestment(value: StoredInvestment): PortfolioInvestment {
     investmentNumber: value.investmentNumber,
     investmentDate: value.investmentDate,
     principalPaise: BigInt(value.principalPaise),
+    faceValuePaise: value.faceValuePaise ? BigInt(value.faceValuePaise) : undefined,
+    interestStartDate: value.interestStartDate ?? undefined,
     annualRateBps: value.interestRateBps,
     interestType: value.interestType,
     compoundingFrequency: value.compoundingFrequency ?? "quarterly",

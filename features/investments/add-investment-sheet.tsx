@@ -50,6 +50,7 @@ const MANUAL_BANK = "manual-bank";
 const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const allowedDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png"]);
 const knownBanks: Set<string> = new Set(indianBankGroups.flatMap((group) => group.banks));
+const ISSUER_SUGGESTIONS_ID = "issuer-bank-suggestions";
 
 const payoutOptions: { value: PayoutFrequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
@@ -77,6 +78,8 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [number, setNumber] = useState(initialInvestment?.investmentNumber ?? "");
   const [investmentDate, setInvestmentDate] = useState(() => initialInvestment?.investmentDate ?? new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = useState(() => initialInvestment ? paiseToInput(initialInvestment.principalPaise) : "");
+  const [faceValue, setFaceValue] = useState(() => initialInvestment?.faceValuePaise ? paiseToInput(initialInvestment.faceValuePaise) : "");
+  const [interestStartDate, setInterestStartDate] = useState(initialInvestment?.interestStartDate ?? "");
   const [rate, setRate] = useState(() => initialInvestment ? (initialInvestment.annualRateBps / 100).toFixed(2) : "");
   const [maturityDate, setMaturityDate] = useState(initialInvestment?.maturityDate ?? "");
   const [maturityAmount, setMaturityAmount] = useState(() => initialInvestment?.expectedMaturityPaise ? paiseToInput(initialInvestment.expectedMaturityPaise) : "");
@@ -109,6 +112,8 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     investmentNumber: number,
     investmentDate,
     principalPaise: parseRupeesToPaise(amount),
+    faceValuePaise: faceValue ? parseRupeesToPaise(faceValue) : undefined,
+    interestStartDate: interestStartDate || undefined,
     annualRateBps: Math.round((Number(rate) || 0) * 100),
     interestType,
     compoundingFrequency,
@@ -119,7 +124,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     expectedMaturityPaise: maturityAmount ? parseRupeesToPaise(maturityAmount) : undefined,
     tdsApplicable,
     expectedTdsRateBps: tdsApplicable ? Math.round((Number(tdsRate) || 0) * 100) : 0,
-  }), [amount, compoundingFrequency, dayCountBasis, firstPayoutDate, frequency, interestType, investmentDate, issuer, maturityAmount, maturityDate, name, number, rate, tdsApplicable, tdsRate, type]);
+  }), [amount, compoundingFrequency, dayCountBasis, faceValue, firstPayoutDate, frequency, interestStartDate, interestType, investmentDate, issuer, maturityAmount, maturityDate, name, number, rate, tdsApplicable, tdsRate, type]);
 
   const schedule = useMemo(() => {
     try { return generatePayoutSchedule(draft); } catch { return []; }
@@ -216,10 +221,26 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
               <FormHeading title="Investment details" description="Enter the values shown on the receipt or certificate." />
               <div className="field-grid">
                 <Field label="Investment name" value={name} setValue={setName} placeholder="e.g. Secure Income FD" />
-                <Field label="Issuer / bank / company" value={issuer} setValue={setIssuer} placeholder="Name shown on the certificate" />
+                {/*
+                  Suggestions, not a fixed list: a deposit's issuer is a bank
+                  from the picker, but a bond or NCD is issued by a company
+                  that will never appear there. Offering the banks still keeps
+                  FD issuer names spelled one way, which matters because this
+                  value is snapshotted onto every investment and shown in
+                  reports.
+                */}
+                <Field label="Issuer / bank / company" value={issuer} setValue={setIssuer} placeholder="Name shown on the certificate" list={ISSUER_SUGGESTIONS_ID} />
+                <datalist id={ISSUER_SUGGESTIONS_ID}>
+                  {indianBankGroups.flatMap((group) => group.banks).map((bank) => <option value={bank} key={bank} />)}
+                </datalist>
                 <Field label="FD / folio / bond number" value={number} setValue={setNumber} placeholder="Certificate number" />
                 <Field label="Investment date" value={investmentDate} setValue={setInvestmentDate} type="date" />
-                <Field label="Investment amount (₹)" value={amount} setValue={setAmount} inputMode="decimal" placeholder="10,00,000" />
+                <Field label="Amount paid (₹)" value={amount} setValue={setAmount} inputMode="decimal" placeholder="10,00,000" />
+                <div className="form-field">
+                  <Label htmlFor="field-face-value">Face value (₹) <span className="field-optional">only if different</span></Label>
+                  <Input id="field-face-value" value={faceValue} onChange={(event) => setFaceValue(event.target.value)} inputMode="decimal" placeholder="Same as amount paid" />
+                  <p className="field-note">A bond bought from another investor is paid for at market price, but the issuer pays interest on the face value printed on it. Leave blank for a deposit.</p>
+                </div>
                 <Field label="Expected maturity amount (₹)" value={maturityAmount} setValue={setMaturityAmount} inputMode="decimal" placeholder="10,00,000" />
               </div>
             </div>
@@ -234,7 +255,12 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                 <div className="form-field"><Label>Payout frequency</Label><Select value={frequency} disabled={interestType !== "simple"} onValueChange={(value) => setFrequency(value as PayoutFrequency)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{payoutOptions.map((option) => <SelectItem value={option.value} key={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>{interestType !== "simple" && <p className="field-note">Compound/cumulative interest is credited on maturity.</p>}</div>
                 {interestType !== "simple" && <div className="form-field"><Label>Compounding frequency</Label><Select value={compoundingFrequency} onValueChange={(value) => setCompoundingFrequency(value as CompoundingFrequency)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="monthly">Monthly</SelectItem><SelectItem value="quarterly">Quarterly</SelectItem><SelectItem value="half-yearly">Half-yearly</SelectItem><SelectItem value="yearly">Yearly</SelectItem></SelectContent></Select></div>}
                 <div className="form-field"><Label>Interest day-count basis</Label><Select value={dayCountBasis} onValueChange={(value) => setDayCountBasis(value as DayCountBasis)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="actual-365">Actual / 365</SelectItem><SelectItem value="actual-actual">Actual / Actual</SelectItem><SelectItem value="30-360">30 / 360</SelectItem></SelectContent></Select><p className="field-note">Use the basis printed in the issuer&apos;s terms.</p></div>
-                {frequency !== "on-maturity" && <Field label="First payout date" value={firstPayoutDate} setValue={setFirstPayoutDate} type="date" min={investmentDate} max={maturityDate || undefined} />}
+                <div className="form-field">
+                  <Label htmlFor="field-interest-start">Interest accrues from <span className="field-optional">only if different</span></Label>
+                  <Input id="field-interest-start" type="date" value={interestStartDate} onChange={(event) => setInterestStartDate(event.target.value)} max={maturityDate || undefined} />
+                  <p className="field-note">Buying a bond part-way through a coupon period means paying the seller the interest earned so far, then collecting the whole coupon. Set the previous coupon date here. Leave blank for a deposit.</p>
+                </div>
+                {frequency !== "on-maturity" && <Field label="First payout date" value={firstPayoutDate} setValue={setFirstPayoutDate} type="date" min={interestStartDate || investmentDate} max={maturityDate || undefined} />}
                 <Field label="Maturity date" value={maturityDate} setValue={setMaturityDate} type="date" />
               </div>
               {firstProjection && <CalculationPreview projection={firstProjection} rate={rate} amount={draft.principalPaise} />}
@@ -366,12 +392,14 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
         issuerName: investment.issuer,
         investmentNumber: investment.investmentNumber,
         principalPaise: Number(investment.principalPaise),
+        faceValuePaise: investment.faceValuePaise === undefined ? undefined : Number(investment.faceValuePaise),
         interestRateBps: investment.annualRateBps,
         interestType: investment.interestType,
         compoundingFrequency: investment.compoundingFrequency,
         dayCountBasis: investment.dayCountBasis,
         payoutFrequency: investment.payoutFrequency,
         investmentDate: investment.investmentDate,
+        interestStartDate: investment.interestStartDate,
         firstPayoutDate: investment.firstPayoutDate,
         maturityDate: investment.maturityDate,
         expectedMaturityPaise: investment.expectedMaturityPaise === undefined ? undefined : Number(investment.expectedMaturityPaise),

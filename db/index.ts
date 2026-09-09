@@ -157,7 +157,12 @@ export function activityLogs(uid: string) {
  * collection group index on `subscriptions`.
  */
 export function allSubscriptions() {
-  return getDb().collectionGroup("subscriptions") as Query<SubscriptionDoc>;
+  // `collectionGroup` is typed as `DocumentData` because Firestore cannot know
+  // what a group holds, and the driver's types no longer accept a direct
+  // assertion to a concrete shape. The cast is the same claim every accessor
+  // above makes: these documents are written by this module, so they have the
+  // shape it writes.
+  return getDb().collectionGroup("subscriptions") as unknown as Query<SubscriptionDoc>;
 }
 
 /* Read helpers. */

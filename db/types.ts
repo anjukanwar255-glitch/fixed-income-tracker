@@ -53,13 +53,24 @@ export interface InvestmentDoc extends Timestamps {
   investmentName: string;
   issuerNameSnapshot: string;
   investmentNumber: string;
+  /** What was paid, including any premium and accrued interest. */
   principalPaise: number;
+  /**
+   * The amount interest is paid on, when it differs from what was paid — a
+   * bond bought on the secondary market. Absent on deposits bought at par.
+   */
+  faceValuePaise?: number | null;
   interestRateBps: number;
   interestType: string;
   compoundingFrequency: string;
   dayCountBasis: string;
   payoutFrequency: string;
   investmentDate: string;
+  /**
+   * When interest starts accruing, when that is not the purchase date — a
+   * secondary-market purchase settles part-way through a coupon period.
+   */
+  interestStartDate?: string | null;
   firstPayoutDate?: string | null;
   maturityDate: string;
   expectedMaturityPaise?: number | null;
