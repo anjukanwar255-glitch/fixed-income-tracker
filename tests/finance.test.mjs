@@ -134,3 +134,41 @@ test("without a face value or interest start date, nothing changes for a deposit
   assert.equal(schedule[0].dueDate, "2026-10-01");
   assert.notEqual(schedule[0].grossInterestPaise, 71_100n);
 });
+
+/*
+ * The scan endpoint receives bytes straight from the file picker with no
+ * filename, so it validates through validateDocumentBytes. That must keep
+ * every check that protects the reader and drop only the filename one, which
+ * exists because uploads are served back as named attachments.
+ */
+const pdfBytes = (body) => new TextEncoder().encode(body).buffer;
+
+test("byte validation keeps the content-signature and active-PDF checks", async () => {
+  const valid = await files.validateDocumentBytes(
+    pdfBytes("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
+    "application/pdf",
+  );
+  assert.equal(valid.mimeType, "application/pdf");
+
+  // A PDF carrying JavaScript is refused here exactly as it is on upload.
+  await assert.rejects(
+    () => files.validateDocumentBytes(pdfBytes("%PDF-1.4\n/JavaScript (app.alert)\n%%EOF"), "application/pdf"),
+    /scripted PDF/i,
+  );
+  // Content decides the type; a lie in the declared type is caught.
+  await assert.rejects(
+    () => files.validateDocumentBytes(pdfBytes("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"), "image/png"),
+    /declared type/i,
+  );
+  // Something that is not a supported document at all.
+  await assert.rejects(
+    () => files.validateDocumentBytes(pdfBytes("plain text, not a document"), "application/pdf"),
+    /not a valid PDF/i,
+  );
+});
+
+test("uploads still require the filename extension to match the content", async () => {
+  // The check dropped for scanning must remain in force for stored uploads.
+  const mislabelled = new File(["%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"], "statement.png", { type: "application/pdf" });
+  await assert.rejects(() => files.validateDocumentFile(mislabelled), /extension and content/i);
+});

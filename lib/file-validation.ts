@@ -15,23 +15,31 @@ export type ValidatedDocument = {
 
 type DocumentFile = Pick<File, "name" | "size" | "type" | "arrayBuffer">;
 
-export async function validateDocumentFile(file: DocumentFile): Promise<ValidatedDocument> {
-  if (file.size <= 0 || file.size > MAX_DOCUMENT_BYTES) {
+/**
+ * Validates bytes that arrived without a filename.
+ *
+ * Everything that protects the reader is here: the type is decided by content
+ * signature rather than by what the caller claimed, a declared type that
+ * disagrees is rejected, and each format's structural checks run — including
+ * the one that refuses a PDF carrying JavaScript or an embedded action.
+ *
+ * The filename/extension agreement check is the single thing this omits, and
+ * it is `validateDocumentFile`'s job because it only means something when a
+ * name is stored and later served back as an attachment. Callers that keep a
+ * filename must use that function, not this one.
+ */
+export async function validateDocumentBytes(bytes: ArrayBuffer, declaredType: string): Promise<ValidatedDocument> {
+  if (bytes.byteLength <= 0 || bytes.byteLength > MAX_DOCUMENT_BYTES) {
     throw new Error("Upload a non-empty PDF, JPG, JPEG or PNG up to 10 MB");
   }
 
-  const bytes = await file.arrayBuffer();
   const data = new Uint8Array(bytes);
   const detected = detectType(data);
   if (!detected) throw new Error("The file content is not a valid PDF, JPG or PNG");
 
-  const extension = file.name.split(".").at(-1)?.toLowerCase() ?? "";
-  const allowedExtensions = detected.mimeType === "image/jpeg" ? ["jpg", "jpeg"] : [detected.extension];
-  if (!allowedExtensions.includes(extension)) throw new Error("The file name extension and content do not match");
-
-  const declared = file.type.toLowerCase();
+  const declared = declaredType.toLowerCase();
   if (declared && declared !== "image/jpg" && declared !== detected.mimeType) {
-    throw new Error("The file extension and content do not match");
+    throw new Error("The declared type and the file content do not match");
   }
 
   if (detected.mimeType === "application/pdf") validatePdf(data);
@@ -45,6 +53,23 @@ export async function validateDocumentFile(file: DocumentFile): Promise<Validate
     extension: detected.extension,
     sha256: [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join(""),
   };
+}
+
+export async function validateDocumentFile(file: DocumentFile): Promise<ValidatedDocument> {
+  if (file.size <= 0 || file.size > MAX_DOCUMENT_BYTES) {
+    throw new Error("Upload a non-empty PDF, JPG, JPEG or PNG up to 10 MB");
+  }
+
+  const bytes = await file.arrayBuffer();
+  const validated = await validateDocumentBytes(bytes, file.type);
+
+  // A stored document is served back under its own name, so the extension has
+  // to agree with what the bytes actually are.
+  const extension = file.name.split(".").at(-1)?.toLowerCase() ?? "";
+  const allowedExtensions = validated.mimeType === "image/jpeg" ? ["jpg", "jpeg"] : [validated.extension];
+  if (!allowedExtensions.includes(extension)) throw new Error("The file name extension and content do not match");
+
+  return validated;
 }
 
 function detectType(data: Uint8Array) {

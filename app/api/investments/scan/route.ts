@@ -1,6 +1,6 @@
 import { requireEntitlement } from "@/lib/billing";
 import { isDocumentScanConfigured, scanInvestmentDocument } from "@/lib/document-scan";
-import { MAX_DOCUMENT_BYTES, validateDocumentFile } from "@/lib/file-validation";
+import { MAX_DOCUMENT_BYTES, validateDocumentBytes } from "@/lib/file-validation";
 import { authenticatedUser } from "@/lib/firebase-auth";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -35,16 +35,13 @@ export async function POST(request: Request) {
   const bytes = await request.arrayBuffer();
   const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "";
 
-  // The same content-signature check uploads use: the declared type is not
-  // trusted, and an active PDF is rejected before anything reads it.
-  let validated: Awaited<ReturnType<typeof validateDocumentFile>>;
+  // The same content-signature and structural checks uploads use: the declared
+  // type is not trusted, and an active PDF is rejected before anything reads
+  // it. Nothing here has a filename — the bytes are streamed straight from the
+  // file picker and never stored — so this is the no-filename variant.
+  let validated: Awaited<ReturnType<typeof validateDocumentBytes>>;
   try {
-    validated = await validateDocumentFile({
-      name: "scan",
-      size: bytes.byteLength,
-      type: contentType,
-      arrayBuffer: async () => bytes,
-    });
+    validated = await validateDocumentBytes(bytes, contentType);
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "The file is not valid" }, { status: 400 });
   }
