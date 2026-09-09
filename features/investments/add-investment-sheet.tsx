@@ -53,6 +53,8 @@ const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const allowedDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png"]);
 const knownBanks: Set<string> = new Set(indianBankGroups.flatMap((group) => group.banks));
 const ISSUER_SUGGESTIONS_ID = "issuer-bank-suggestions";
+/** A deal sheet, a repayment schedule, and room for one more. */
+const MAX_SCAN_DOCUMENTS = 3;
 
 const payoutOptions: { value: PayoutFrequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
@@ -114,20 +116,24 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
    * check rather than saved. Every field the document did not yield stays
    * blank instead of being guessed at.
    */
-  const scanDocument = async (file: File) => {
-    if (!allowedDocumentTypes.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES) {
-      toast.error("Upload a PDF, JPG, JPEG or PNG up to 10 MB");
+  const scanDocuments = async (files: File[]) => {
+    if (!files.length) return;
+    if (files.length > MAX_SCAN_DOCUMENTS) {
+      toast.error(`Attach at most ${MAX_SCAN_DOCUMENTS} documents`);
+      return;
+    }
+    if (files.some((file) => !allowedDocumentTypes.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES)) {
+      toast.error("Each file must be a PDF, JPG, JPEG or PNG up to 10 MB");
       return;
     }
     setScanning(true);
     try {
-      const response = await apiFetch("/api/investments/scan", {
-        method: "POST",
-        headers: { "content-type": file.type },
-        body: file,
-      });
+      const form = new FormData();
+      for (const file of files) form.append("documents", file);
+      // No content-type header: the browser sets the multipart boundary.
+      const response = await apiFetch("/api/investments/scan", { method: "POST", body: form });
       const payload = await response.json() as { fields?: Record<string, unknown>; error?: string };
-      if (!response.ok || !payload.fields) throw new Error(payload.error ?? "The document could not be read");
+      if (!response.ok || !payload.fields) throw new Error(payload.error ?? "The documents could not be read");
 
       const found = payload.fields;
       const fillText = (value: unknown, current: string, set: (next: string) => void) => {
@@ -155,9 +161,9 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
       if (typeof found.dayCountBasis === "string") { setDayCountBasis(found.dayCountBasis as DayCountBasis); filled += 1; }
       if (typeof found.interestType === "string") { setInterestType(found.interestType as InterestType); filled += 1; }
 
-      toast.success(filled ? `Filled ${filled} field${filled === 1 ? "" : "s"} — check each one against the document` : "Nothing could be read from that document");
+      toast.success(filled ? `Filled ${filled} field${filled === 1 ? "" : "s"} — check each one against the documents` : "Nothing could be read from those documents");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "The document could not be read");
+      toast.error(error instanceof Error ? error.message : "The documents could not be read");
     } finally {
       setScanning(false);
     }
@@ -282,17 +288,18 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
               <label className="upload-zone">
                 <input
                   type="file"
+                  multiple
                   accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
                   disabled={scanning}
                   onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null;
+                    const files = Array.from(event.target.files ?? []);
                     event.currentTarget.value = "";
-                    if (file) void scanDocument(file);
+                    void scanDocuments(files);
                   }}
                 />
                 {scanning ? <Loader2 className="spinning" aria-hidden="true" /> : <ScanLine aria-hidden="true" />}
-                <b>{scanning ? "Reading the document…" : "Scan a certificate or statement"}</b>
-                <span>Fills the form for you · check every value before saving</span>
+                <b>{scanning ? "Reading the documents…" : "Scan certificates or statements"}</b>
+                <span>Attach the deal sheet and the repayment schedule together · check every value before saving</span>
               </label>
               <div className="field-grid">
                 <Field label="Investment name" value={name} setValue={setName} placeholder="e.g. Secure Income FD" />

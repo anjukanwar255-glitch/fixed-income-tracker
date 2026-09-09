@@ -61,16 +61,21 @@ const responseSchema = {
   },
 } as const;
 
-const INSTRUCTIONS = `You are reading an Indian fixed-income document: a fixed deposit receipt, bond or NCD certificate, or a broker's holding statement.
+const INSTRUCTIONS = `You are reading Indian fixed-income paperwork: a fixed deposit receipt, a bond or NCD certificate, a broker's deal sheet or contract note, or a repayment schedule.
 
-Extract only what the document actually states. Omit any field you cannot read with confidence — a missing field is corrected in seconds, a wrong one silently distorts years of projected payouts. Never infer, average or calculate a value that is not printed.
+You may be given more than one document for the same investment — typically a deal sheet stating the terms and a statement listing the payment schedule. Read all of them together and return one combined answer. Each tends to carry what the other omits: the deal sheet names the issuer and the coupon, the schedule shows how interest actually behaves month to month. Where two documents disagree, prefer the deal sheet, contract note or certificate over a statement or app screenshot.
+
+Extract only what the documents actually state. Omit any field you cannot read with confidence — a missing field is corrected in seconds, a wrong one silently distorts years of projected payouts. Never infer, average or calculate a value that is not printed.
 
 Points that are commonly got wrong:
 
-- The face value and the amount paid are different numbers when a bond is bought from another investor. The face value is what the issuer repays at maturity and computes interest on; the amount paid is the market price, which may include a premium and the previous holder's accrued interest. If the document shows a redemption or principal repayment row, that amount is the face value.
-- The interest rate is the coupon printed in the terms. A broker's "YTM", "XIRR" or "returns" percentage is a different figure and must not be used as the rate.
-- If the first interest payment covers a longer period than the gap between the purchase date and that payment, interest began accruing before the purchase. Report that earlier date as interestStartDate.
-- Infer dayCountBasis from a payment schedule if one is present: if payments track the number of days in each month, it is an actual basis; if a February in a leap year pays proportionally less than the same period elsewhere, it is actual-actual. If every period pays an identical amount regardless of month length, it is 30-360.
+- **The issuer is not the broker.** The issuer is the company that borrowed the money and pays the interest — look for a label like "Issuer", "Issuer Name" or the company named in the security's own name. The platform that sold it (Grip, Wint, Jiraaf, INDmoney, Zerodha and the like), the seller or counterparty on a secondary trade, the clearing corporation and the depository are all intermediaries. A logo or letterhead is not evidence of who issued the security. If no issuer is named anywhere, omit issuerName rather than falling back to whoever produced the document.
+- The face value and the amount paid are different numbers when a bond is bought from another investor. Face value is what the issuer repays at maturity and computes interest on — often labelled "Total Principal Amount", or the face value per unit multiplied by the number of units. The amount paid is the total consideration, which adds any premium and the accrued interest owed to the seller. If a document shows a principal repayment at maturity, that amount is the face value.
+- The interest rate is the coupon printed in the terms — "Coupon Rate" or "Interest Rate". A "YTM", "XIRR" or "returns" percentage is a different figure and must never be used as the rate. Both often appear on the same page, a line or two apart.
+- If a document states accrued interest paid to the seller, interest began accruing before the purchase. Work back from the accrued amount and the coupon to the date it started, and report that as interestStartDate. Equally, if the first payment covers a longer period than the gap between purchase and that payment, interest started before the purchase.
+- Infer dayCountBasis from a payment schedule when one is present: if payments track the number of days in each month, it is an actual basis; if February in a leap year pays proportionally less than the equivalent period in other years, it is actual-actual. If every period pays an identical amount regardless of month length, it is 30-360.
+
+Put anything material that has no field of its own into notes — a premium or discount over face value, accrued interest paid to the seller, the number of units, the ISIN, or a figure you were unsure about and left out.
 
 Return dates as YYYY-MM-DD. Return money as plain rupee numbers without symbols or separators.`;
 
@@ -91,14 +96,26 @@ export function isDocumentScanConfigured() {
   return env.DOCUMENT_SCAN_ENABLED === "true";
 }
 
-export async function scanInvestmentDocument(bytes: ArrayBuffer, mimeType: string): Promise<ScannedInvestment> {
+export type ScanSource = { bytes: ArrayBuffer; mimeType: string };
+
+/**
+ * Reads one or more documents describing the same investment.
+ *
+ * A deal sheet and a repayment schedule answer different halves of the form —
+ * the first names the issuer and the coupon, the second reveals how interest
+ * behaves across month lengths and leap years — so they are sent together and
+ * reconciled in a single pass rather than scanned separately and merged here.
+ */
+export async function scanInvestmentDocuments(sources: ScanSource[]): Promise<ScannedInvestment> {
   const response = await getClient().models.generateContent({
     model: env.DOCUMENT_SCAN_MODEL ?? DEFAULT_MODEL,
     contents: [
       {
         role: "user",
         parts: [
-          { inlineData: { mimeType, data: Buffer.from(bytes).toString("base64") } },
+          ...sources.map(({ bytes, mimeType }) => ({
+            inlineData: { mimeType, data: Buffer.from(bytes).toString("base64") },
+          })),
           { text: INSTRUCTIONS },
         ],
       },
