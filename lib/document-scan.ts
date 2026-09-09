@@ -28,6 +28,10 @@ export type ScannedInvestment = {
   investmentName?: string;
   issuerName?: string;
   investmentNumber?: string;
+  brokerName?: string;
+  dpId?: string;
+  clientId?: string;
+  orderReference?: string;
   investmentDate?: string;
   amountPaidRupees?: number;
   faceValueRupees?: number;
@@ -58,6 +62,10 @@ const responseSchema = {
     interestStartDate: { type: Type.STRING, description: "Date interest begins accruing as YYYY-MM-DD, only if a document states it outright. Do not calculate it — reporting accruedInterestPaidRupees is enough." },
     firstPayoutDate: { type: Type.STRING, description: "First interest payment date as YYYY-MM-DD." },
     maturityDate: { type: Type.STRING, description: "Maturity or redemption date as YYYY-MM-DD." },
+    brokerName: { type: Type.STRING, description: "The broker, platform or distributor the purchase went through — whoever produced a deal sheet or contract note. This is not the issuer; both usually appear on the same page." },
+    dpId: { type: Type.STRING, description: "Depository participant id, labelled 'DP ID'. Usually starts with IN for NSDL." },
+    clientId: { type: Type.STRING, description: "Demat client id, labelled 'Client ID' or 'Beneficiary ID'. Not the broker's own client code." },
+    orderReference: { type: Type.STRING, description: "The reference for this trade — 'Order ID', 'Settlement Number' or 'Transaction ID'. Prefer the order id when several appear." },
     payoutFrequency: { type: Type.STRING, description: "One of: monthly, quarterly, half-yearly, yearly, on-maturity." },
     dayCountBasis: { type: Type.STRING, description: "One of: actual-365, actual-actual, 30-360. Use actual-actual when payouts in a leap year are smaller than the equivalent period in other years." },
     interestType: { type: Type.STRING, description: "One of: simple, compound, cumulative." },
@@ -163,6 +171,10 @@ function sanitise(raw: Record<string, unknown>): ScannedInvestment {
   result.investmentName = text(raw.investmentName, 120);
   result.issuerName = text(raw.issuerName, 120);
   result.investmentNumber = text(raw.investmentNumber, 80);
+  result.brokerName = text(raw.brokerName, 100);
+  result.dpId = text(raw.dpId, 40);
+  result.clientId = text(raw.clientId, 40);
+  result.orderReference = text(raw.orderReference, 80);
   result.investmentDate = isoDate(raw.investmentDate);
   result.amountPaidRupees = positive(raw.amountPaidRupees);
   result.faceValueRupees = positive(raw.faceValueRupees);

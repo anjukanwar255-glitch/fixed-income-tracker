@@ -102,9 +102,18 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [paymentMode, setPaymentMode] = useState(initialInvestment?.paymentMode ?? "bank-transfer");
   const [nominee, setNominee] = useState(initialInvestment?.nominee ?? "");
   const [broker, setBroker] = useState(initialInvestment?.brokerPlatform ?? "");
+  const [dpId, setDpId] = useState(initialInvestment?.dpId ?? "");
+  const [clientId, setClientId] = useState(initialInvestment?.clientId ?? "");
+  const [orderReference, setOrderReference] = useState(initialInvestment?.orderReference ?? "");
   const [advisor, setAdvisor] = useState(initialInvestment?.advisorName ?? "");
   const [notes, setNotes] = useState(initialInvestment?.notes ?? "");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  /**
+   * Documents that came from a scan, carried forward so step 6 already has
+   * them: they are the certificate this investment should be filed with, and
+   * asking for them a second time is asking for the same files twice.
+   */
+  const [scannedFiles, setScannedFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
 
@@ -156,6 +165,10 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
       filled += Number(fillText(found.investmentName, name, setName));
       filled += Number(fillText(found.issuerName, issuer, setIssuer));
       filled += Number(fillText(found.investmentNumber, number, setNumber));
+      filled += Number(fillText(found.brokerName, broker, setBroker));
+      filled += Number(fillText(found.dpId, dpId, setDpId));
+      filled += Number(fillText(found.clientId, clientId, setClientId));
+      filled += Number(fillText(found.orderReference, orderReference, setOrderReference));
       filled += Number(fillText(found.investmentDate, "", setInvestmentDate));
       filled += Number(fillNumber(found.amountPaidRupees, amount, setAmount));
       filled += Number(fillNumber(found.faceValueRupees, faceValue, setFaceValue));
@@ -188,6 +201,11 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
         ? previousCouponDate(nextFirstPayout, scannedFrequency)
         : null;
       filled += Number(fillText(statedStart ?? derivedStart, interestStartDate, setInterestStartDate));
+
+      // These are the papers this investment should be filed with, so they
+      // carry through to the documents step instead of being asked for twice.
+      setScannedFiles(files);
+      if (!selectedFile) setSelectedFile(files[0]);
 
       toast.success(filled ? `Filled ${filled} field${filled === 1 ? "" : "s"} — check each one against the documents` : "Nothing could be read from those documents");
     } catch (error) {
@@ -248,6 +266,15 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
       toast.error("Upload a PDF, JPG, JPEG or PNG up to 10 MB");
       return;
     }
+    // A bond has to be filed with its paperwork: the terms live in the
+    // agreement, not in this form, and a holding with no document behind it
+    // cannot be reconciled against the broker later. Scanning already supplies
+    // one, so this only stops someone who typed everything by hand.
+    if (bondDocument && !selectedFile && !initialInvestment) {
+      setStep(6);
+      toast.error("Attach the bond agreement or deal sheet before saving");
+      return;
+    }
     const investment: PortfolioInvestment = {
       ...draft,
       id: initialInvestment?.id ?? "",
@@ -259,7 +286,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     };
     setSaving(true);
     try {
-      const result = await syncInvestment(investment, { bankName: resolvedBankName, accountLast4, paymentMode, nominee, broker, advisor, notes }, { panLinked, declarationApplicable }, selectedFile);
+      const result = await syncInvestment(investment, { bankName: resolvedBankName, accountLast4, paymentMode, nominee, broker, dpId, clientId, orderReference, advisor, notes }, { panLinked, declarationApplicable }, selectedFile);
       if (result.warning) toast.warning(result.warning);
       await onSave(result.investmentId);
       onOpenChange(false);
@@ -427,7 +454,10 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                 <Field label="Account last 4 digits" value={accountLast4} setValue={(value) => setAccountLast4(value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" placeholder="1234" />
                 <div className="form-field"><Label>Payment mode</Label><Select value={paymentMode} onValueChange={setPaymentMode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="bank-transfer">Bank transfer</SelectItem><SelectItem value="cheque">Cheque</SelectItem><SelectItem value="broker-wallet">Broker wallet</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
                 <Field label="Nominee" value={nominee} setValue={setNominee} placeholder="Optional" />
-                <Field label="Broker / platform" value={broker} setValue={setBroker} placeholder="Optional" />
+                <Field label="Broker / platform" value={broker} setValue={setBroker} placeholder="Who the purchase went through" maxLength={100} />
+                <Field label="DP ID" value={dpId} setValue={setDpId} placeholder="Optional · e.g. IN304877" maxLength={40} />
+                <Field label="Demat client ID" value={clientId} setValue={setClientId} placeholder="Optional" maxLength={40} />
+                <Field label="Order / settlement reference" value={orderReference} setValue={setOrderReference} placeholder="Optional" maxLength={80} />
                 <Field label="Advisor name" value={advisor} setValue={setAdvisor} placeholder="Optional" />
               </div>
               <div className="form-field"><Label htmlFor="investment-notes">Notes</Label><Textarea id="investment-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Any helpful reference or instruction" /></div>
@@ -437,20 +467,48 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
 
           {step === 6 && (
             <div className="form-section">
-              <FormHeading title="Documents & review" description={bondDocument ? "Upload the bond certificate, allotment letter or statement now." : "Upload a certificate now or add documents later."} />
+              <FormHeading
+                title="Documents & review"
+                description={scannedFiles.length
+                  ? "Carried over from the scan. Choose which one to file with this investment."
+                  : bondDocument
+                    ? "Attach the bond agreement or deal sheet — a holding without its paperwork is hard to reconcile later."
+                    : "Upload a certificate now or add documents later."}
+              />
+              {/*
+                Files that came from a scan are offered as choices rather than
+                re-requested. They are already on the device and already read;
+                asking for them again is asking twice for the same thing.
+              */}
+              {scannedFiles.length > 0 && (
+                <div className="scanned-file-list" role="radiogroup" aria-label="Document to file">
+                  {scannedFiles.map((file) => (
+                    <label key={file.name} className="scanned-file" data-selected={selectedFile?.name === file.name}>
+                      <input
+                        type="radio"
+                        name="scanned-document"
+                        checked={selectedFile?.name === file.name}
+                        onChange={() => setSelectedFile(file)}
+                      />
+                      <FileText aria-hidden="true" />
+                      <b>{file.name}</b>
+                      {selectedFile?.name === file.name && <Check aria-hidden="true" />}
+                    </label>
+                  ))}
+                </div>
+              )}
               <label className="upload-zone">
                 <input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => {
                   const file = event.target.files?.[0] ?? null;
                   if (file && (!allowedDocumentTypes.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES)) {
-                    setSelectedFile(null);
                     event.currentTarget.value = "";
                     toast.error("Upload a PDF, JPG, JPEG or PNG up to 10 MB");
                     return;
                   }
-                  setSelectedFile(file);
+                  if (file) setSelectedFile(file);
                 }} />
                 <UploadCloud aria-hidden="true" />
-                <b>{selectedFile?.name ?? (bondDocument ? "Add bond document" : "Add investment document")}</b>
+                <b>{scannedFiles.length ? "Attach a different document" : selectedFile?.name ?? (bondDocument ? "Add bond document" : "Add investment document")}</b>
                 <span>PDF, JPG, JPEG or PNG · max 10 MB · private access</span>
               </label>
               <div className="review-card">
@@ -530,6 +588,9 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
         paymentMode: extra.paymentMode,
         nominee: extra.nominee,
         brokerPlatform: extra.broker,
+        dpId: extra.dpId,
+        clientId: extra.clientId,
+        orderReference: extra.orderReference,
         advisorName: extra.advisor,
         notes: extra.notes,
       }),

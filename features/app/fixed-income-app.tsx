@@ -280,6 +280,9 @@ type StoredInvestment = {
   paymentMode: string | null;
   nominee: string | null;
   brokerPlatform: string | null;
+  dpId?: string | null;
+  clientId?: string | null;
+  orderReference?: string | null;
   advisorName: string | null;
   notes: string | null;
   status: PortfolioInvestment["status"];
@@ -335,6 +338,9 @@ function fromStoredInvestment(value: StoredInvestment): PortfolioInvestment {
     paymentMode: value.paymentMode ?? undefined,
     nominee: value.nominee ?? undefined,
     brokerPlatform: value.brokerPlatform ?? undefined,
+    dpId: value.dpId ?? undefined,
+    clientId: value.clientId ?? undefined,
+    orderReference: value.orderReference ?? undefined,
     advisorName: value.advisorName ?? undefined,
     notes: value.notes ?? undefined,
     status: value.status,

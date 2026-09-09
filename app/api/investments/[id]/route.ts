@@ -47,6 +47,9 @@ const updateInput = z.object({
   paymentMode: z.string().trim().max(50).optional(),
   nominee: z.string().trim().max(100).optional(),
   brokerPlatform: z.string().trim().max(100).optional(),
+  dpId: z.string().trim().max(40).optional(),
+  clientId: z.string().trim().max(40).optional(),
+  orderReference: z.string().trim().max(80).optional(),
   advisorName: z.string().trim().max(100).optional(),
   notes: z.string().trim().max(1000).optional(),
 }).superRefine((value, context) => {
@@ -125,7 +128,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       maturityDate: input.maturityDate, expectedMaturityPaise: input.expectedMaturityPaise ?? null, tdsApplicable: input.tdsApplicable,
       expectedTdsRateBps: input.expectedTdsRateBps, panLinked: input.panLinked, declarationApplicable: input.declarationApplicable,
       bankName: input.bankName ?? null, accountLast4: input.accountLast4 || null, paymentMode: input.paymentMode ?? null, nominee: input.nominee ?? null,
-      brokerPlatform: input.brokerPlatform ?? null, advisorName: input.advisorName ?? null, notes: input.notes ?? null,
+      brokerPlatform: input.brokerPlatform ?? null, dpId: input.dpId ?? null, clientId: input.clientId ?? null,
+      orderReference: input.orderReference ?? null, advisorName: input.advisorName ?? null, notes: input.notes ?? null,
       financialYear: calculateFinancialYear(input.investmentDate), revision: nextRevision, updatedAt: now,
     }),
   ];

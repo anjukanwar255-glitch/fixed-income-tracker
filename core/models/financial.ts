@@ -128,5 +128,14 @@ export interface PortfolioInvestment extends InvestmentDraft {
   nominee?: string;
   brokerPlatform?: string;
   advisorName?: string;
+  /**
+   * Demat and trade references, as printed on a broker's deal sheet. Kept for
+   * reconciling a holding against the broker and the depository — the DP and
+   * client ids identify the demat account the security actually sits in, and
+   * the order reference identifies this trade within it.
+   */
+  dpId?: string;
+  clientId?: string;
+  orderReference?: string;
   notes?: string;
 }

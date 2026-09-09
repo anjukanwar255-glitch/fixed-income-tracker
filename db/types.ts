@@ -83,6 +83,10 @@ export interface InvestmentDoc extends Timestamps {
   paymentMode?: string | null;
   nominee?: string | null;
   brokerPlatform?: string | null;
+  /** Demat and trade references from a broker deal sheet. */
+  dpId?: string | null;
+  clientId?: string | null;
+  orderReference?: string | null;
   advisorName?: string | null;
   notes?: string | null;
   status: string;

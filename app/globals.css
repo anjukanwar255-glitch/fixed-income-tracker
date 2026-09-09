@@ -362,3 +362,12 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .scan-wanted { display:flex; flex-direction:column; gap:3px; margin-top:8px; }
 .scan-wanted i { color:#0b7770; font-size:.7rem; font-style:normal; font-weight:600; }
 .scan-wanted i::before { content:"+ "; opacity:.7; }
+
+/* Documents carried over from a scan, offered as a choice rather than asked
+   for again. */
+.scanned-file-list { display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
+.scanned-file { align-items:center; background:#f8fafc; border:1px solid #d8e2ea; border-radius:12px; cursor:pointer; display:flex; gap:10px; padding:11px 13px; }
+.scanned-file[data-selected="true"] { background:#effaf7; border-color:#0b7770; }
+.scanned-file input { height:1px; opacity:0; position:absolute; width:1px; }
+.scanned-file svg { color:#0b7770; flex:none; height:17px; width:17px; }
+.scanned-file b { flex:1; font-size:.78rem; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
