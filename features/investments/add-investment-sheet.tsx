@@ -36,7 +36,7 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { indianBankGroups } from "@/core/data/indian-banks";
-import { formatMoney, generatePayoutSchedule, parseRupeesToPaise } from "@/core/finance/calculations";
+import { formatMoney, generatePayoutSchedule, parseRupeesToPaise, previousCouponDate } from "@/core/finance/calculations";
 import { apiFetch, uploadDocumentFile } from "@/lib/firebase-client";
 import type { CompoundingFrequency, DayCountBasis, InterestType, InvestmentType, PayoutFrequency, PortfolioInvestment } from "@/core/models/financial";
 
@@ -152,14 +152,35 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
       filled += Number(fillText(found.investmentDate, "", setInvestmentDate));
       filled += Number(fillNumber(found.amountPaidRupees, amount, setAmount));
       filled += Number(fillNumber(found.faceValueRupees, faceValue, setFaceValue));
+      filled += Number(fillNumber(found.expectedMaturityRupees, maturityAmount, setMaturityAmount));
       filled += Number(fillNumber(found.interestRatePercent, rate, setRate));
-      filled += Number(fillText(found.interestStartDate, interestStartDate, setInterestStartDate));
       filled += Number(fillText(found.firstPayoutDate, firstPayoutDate, setFirstPayoutDate));
       filled += Number(fillText(found.maturityDate, maturityDate, setMaturityDate));
       filled += Number(fillText(found.notes, notes, setNotes));
-      if (typeof found.payoutFrequency === "string") { setFrequency(found.payoutFrequency as PayoutFrequency); filled += 1; }
+
+      const scannedFrequency = typeof found.payoutFrequency === "string" ? found.payoutFrequency as PayoutFrequency : null;
+      if (scannedFrequency) { setFrequency(scannedFrequency); filled += 1; }
       if (typeof found.dayCountBasis === "string") { setDayCountBasis(found.dayCountBasis as DayCountBasis); filled += 1; }
       if (typeof found.interestType === "string") { setInterestType(found.interestType as InterestType); filled += 1; }
+
+      /*
+       * When the documents show interest was paid to the seller, the purchase
+       * landed part-way through a coupon period, so interest runs from the
+       * previous coupon date rather than from the purchase.
+       *
+       * That date is derived here rather than asked for: stepping one period
+       * back from the first payout is exact, where having the model divide an
+       * accrued amount by a daily rate is arithmetic it can quietly get wrong.
+       * A date the documents state outright is still preferred over the
+       * derived one.
+       */
+      const statedStart = typeof found.interestStartDate === "string" ? found.interestStartDate : null;
+      const paidAccruedInterest = typeof found.accruedInterestPaidRupees === "number" && found.accruedInterestPaidRupees > 0;
+      const nextFirstPayout = typeof found.firstPayoutDate === "string" ? found.firstPayoutDate : firstPayoutDate;
+      const derivedStart = paidAccruedInterest && nextFirstPayout && scannedFrequency
+        ? previousCouponDate(nextFirstPayout, scannedFrequency)
+        : null;
+      filled += Number(fillText(statedStart ?? derivedStart, interestStartDate, setInterestStartDate));
 
       toast.success(filled ? `Filled ${filled} field${filled === 1 ? "" : "s"} — check each one against the documents` : "Nothing could be read from those documents");
     } catch (error) {

@@ -172,3 +172,33 @@ test("uploads still require the filename extension to match the content", async 
   const mislabelled = new File(["%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"], "statement.png", { type: "application/pdf" });
   await assert.rejects(() => files.validateDocumentFile(mislabelled), /extension and content/i);
 });
+
+/*
+ * Where a mid-period purchase starts accruing.
+ *
+ * The scan reports the accrued interest a deal sheet prints and nothing more;
+ * this is what turns that into a date. Deriving it by stepping back one coupon
+ * period is exact, where dividing an accrued amount by a daily rate is
+ * arithmetic a model can quietly get wrong.
+ */
+test("the previous coupon date is one period before the first payout", () => {
+  // Muthoot: monthly, first payout 01/10/2026, so accrual starts 01/09/2026 -
+  // confirmed independently by the deal sheet's Rs 142.20 accrued interest,
+  // which is six days at Rs 23.70 back from the 07/09 settlement.
+  assert.equal(finance.previousCouponDate("2026-10-01", "monthly"), "2026-09-01");
+
+  assert.equal(finance.previousCouponDate("2026-10-01", "quarterly"), "2026-07-01");
+  assert.equal(finance.previousCouponDate("2026-10-01", "half-yearly"), "2026-04-01");
+  assert.equal(finance.previousCouponDate("2026-10-01", "yearly"), "2025-10-01");
+});
+
+test("stepping back a period keeps month-ends and crosses years", () => {
+  // A 31st steps back to the last day of a shorter month rather than spilling.
+  assert.equal(finance.previousCouponDate("2026-03-31", "monthly"), "2026-02-28");
+  assert.equal(finance.previousCouponDate("2028-03-31", "monthly"), "2028-02-29");
+  assert.equal(finance.previousCouponDate("2026-01-15", "monthly"), "2025-12-15");
+});
+
+test("a custom schedule has no period to step back through", () => {
+  assert.equal(finance.previousCouponDate("2026-10-01", "custom"), null);
+});

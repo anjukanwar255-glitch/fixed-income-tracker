@@ -315,6 +315,22 @@ function addMonthsPreservingEnd(value: Date, months: number) {
   ));
 }
 
+/**
+ * The coupon date one period before the first payout.
+ *
+ * A bond bought from another investor part-way through a coupon period accrues
+ * interest from the previous coupon date, not from the purchase: the buyer
+ * reimburses the seller for the days already earned and then collects the
+ * whole coupon. That previous date is what the schedule has to start from, and
+ * stepping back one period from the first payout finds it without any
+ * arithmetic on money.
+ */
+export function previousCouponDate(firstPayoutDate: string, frequency: PayoutFrequency) {
+  const months = frequencyMonths(frequency);
+  if (!months) return null;
+  return toIsoDate(addMonthsPreservingEnd(parseIsoDate(firstPayoutDate), -months));
+}
+
 function daysBetween(start: Date, end: Date) {
   return Math.round((end.getTime() - start.getTime()) / 86_400_000);
 }

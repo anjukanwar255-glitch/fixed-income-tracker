@@ -31,6 +31,8 @@ export type ScannedInvestment = {
   investmentDate?: string;
   amountPaidRupees?: number;
   faceValueRupees?: number;
+  expectedMaturityRupees?: number;
+  accruedInterestPaidRupees?: number;
   interestRatePercent?: number;
   interestStartDate?: string;
   firstPayoutDate?: string;
@@ -48,10 +50,12 @@ const responseSchema = {
     issuerName: { type: Type.STRING, description: "The bank or company that issued it, not the broker or platform." },
     investmentNumber: { type: Type.STRING, description: "ISIN, FD receipt number, folio or certificate number." },
     investmentDate: { type: Type.STRING, description: "Purchase or deposit date as YYYY-MM-DD." },
-    amountPaidRupees: { type: Type.NUMBER, description: "Total rupees actually paid, including any premium or accrued interest." },
-    faceValueRupees: { type: Type.NUMBER, description: "Face or principal value the issuer pays interest on and repays at maturity. Often units multiplied by the per-unit face value. Omit if it is the same as the amount paid." },
-    interestRatePercent: { type: Type.NUMBER, description: "The coupon or contracted interest rate per year. Never the YTM, XIRR or 'returns' figure a broker displays." },
-    interestStartDate: { type: Type.STRING, description: "Date interest begins accruing as YYYY-MM-DD, if the document shows it starting before the purchase date. Omit otherwise." },
+    amountPaidRupees: { type: Type.NUMBER, description: "Total rupees actually paid. Labelled 'Total Consideration' or 'Total Investment Amount' on a deal sheet. Includes any premium and accrued interest." },
+    faceValueRupees: { type: Type.NUMBER, description: "The principal the issuer pays interest on and repays at maturity. Labelled 'Total Principal Amount', or the 'Face Value per Unit' multiplied by the 'Number of Units'. Report it whenever the document states it, even if you are unsure whether it differs from the amount paid." },
+    expectedMaturityRupees: { type: Type.NUMBER, description: "Total expected at maturity. For a bond repaying principal at maturity this is the face value. For a cumulative deposit it is the printed maturity value." },
+    accruedInterestPaidRupees: { type: Type.NUMBER, description: "Interest paid to the seller for the part of the coupon period before the purchase, labelled 'Accrued Interest'. Report the printed number only. Present on a secondary-market purchase, absent on a fresh issue or deposit." },
+    interestRatePercent: { type: Type.NUMBER, description: "The coupon or contracted interest rate per year, labelled 'Coupon Rate' or 'Interest Rate'. Never the YTM, XIRR or 'returns' figure, which often appears a line or two away." },
+    interestStartDate: { type: Type.STRING, description: "Date interest begins accruing as YYYY-MM-DD, only if a document states it outright. Do not calculate it — reporting accruedInterestPaidRupees is enough." },
     firstPayoutDate: { type: Type.STRING, description: "First interest payment date as YYYY-MM-DD." },
     maturityDate: { type: Type.STRING, description: "Maturity or redemption date as YYYY-MM-DD." },
     payoutFrequency: { type: Type.STRING, description: "One of: monthly, quarterly, half-yearly, yearly, on-maturity." },
@@ -70,9 +74,9 @@ Extract only what the documents actually state. Omit any field you cannot read w
 Points that are commonly got wrong:
 
 - **The issuer is not the broker.** The issuer is the company that borrowed the money and pays the interest — look for a label like "Issuer", "Issuer Name" or the company named in the security's own name. The platform that sold it (Grip, Wint, Jiraaf, INDmoney, Zerodha and the like), the seller or counterparty on a secondary trade, the clearing corporation and the depository are all intermediaries. A logo or letterhead is not evidence of who issued the security. If no issuer is named anywhere, omit issuerName rather than falling back to whoever produced the document.
-- The face value and the amount paid are different numbers when a bond is bought from another investor. Face value is what the issuer repays at maturity and computes interest on — often labelled "Total Principal Amount", or the face value per unit multiplied by the number of units. The amount paid is the total consideration, which adds any premium and the accrued interest owed to the seller. If a document shows a principal repayment at maturity, that amount is the face value.
+- The face value and the amount paid are different numbers when a bond is bought from another investor, and a deal sheet prints both. Face value is what the issuer repays at maturity and computes interest on — "Total Principal Amount", or "Face Value per Unit" times "Number of Units". The amount paid is the "Total Consideration" or "Total Investment Amount", which adds any premium and the accrued interest owed to the seller. Always report the face value when it is stated. Do not skip it because it looks close to the amount paid — a difference of a few hundred rupees changes every payout in the schedule.
 - The interest rate is the coupon printed in the terms — "Coupon Rate" or "Interest Rate". A "YTM", "XIRR" or "returns" percentage is a different figure and must never be used as the rate. Both often appear on the same page, a line or two apart.
-- If a document states accrued interest paid to the seller, interest began accruing before the purchase. Work back from the accrued amount and the coupon to the date it started, and report that as interestStartDate. Equally, if the first payment covers a longer period than the gap between purchase and that payment, interest started before the purchase.
+- Report accrued interest as the printed number in accruedInterestPaidRupees. Do not convert it into a date: its presence is what matters, and the date it implies is worked out afterwards from the coupon schedule.
 - Infer dayCountBasis from a payment schedule when one is present: if payments track the number of days in each month, it is an actual basis; if February in a leap year pays proportionally less than the equivalent period in other years, it is actual-actual. If every period pays an identical amount regardless of month length, it is 30-360.
 
 Put anything material that has no field of its own into notes — a premium or discount over face value, accrued interest paid to the seller, the number of units, the ISIN, or a figure you were unsure about and left out.
@@ -162,6 +166,8 @@ function sanitise(raw: Record<string, unknown>): ScannedInvestment {
   result.investmentDate = isoDate(raw.investmentDate);
   result.amountPaidRupees = positive(raw.amountPaidRupees);
   result.faceValueRupees = positive(raw.faceValueRupees);
+  result.expectedMaturityRupees = positive(raw.expectedMaturityRupees);
+  result.accruedInterestPaidRupees = positive(raw.accruedInterestPaidRupees);
   result.interestStartDate = isoDate(raw.interestStartDate);
   result.firstPayoutDate = isoDate(raw.firstPayoutDate);
   result.maturityDate = isoDate(raw.maturityDate);
