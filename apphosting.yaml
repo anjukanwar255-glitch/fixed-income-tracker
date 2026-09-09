@@ -58,6 +58,30 @@ env:
     availability:
       - RUNTIME
 
+  # Certificate scanning. Each read bills a Vertex AI call, so it is behind an
+  # explicit switch rather than on by default. Authentication is the App
+  # Hosting runtime's own identity — there is no API key.
+  - variable: DOCUMENT_SCAN_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
+
+  # Flash is deliberate: reading printed fields off a document is not a
+  # reasoning task, and thinking is disabled in the request for the same
+  # reason. Raise this to a stronger model here if extraction accuracy proves
+  # insufficient — nothing in the code assumes a particular model.
+  - variable: DOCUMENT_SCAN_MODEL
+    value: gemini-2.5-flash
+    availability:
+      - RUNTIME
+
+  # Firestore is in Mumbai but App Hosting is in Singapore; "global" lets
+  # Vertex route the request rather than pinning it to either.
+  - variable: VERTEX_LOCATION
+    value: global
+    availability:
+      - RUNTIME
+
   # Not yet configured — add back once a value exists:
   #   firebase apphosting:secrets:set razorpay-key-secret
   #   firebase apphosting:secrets:set razorpay-webhook-secret

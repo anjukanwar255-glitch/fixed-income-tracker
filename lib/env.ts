@@ -22,6 +22,11 @@ export interface AppEnv {
   RAZORPAY_PLAN_MONTHLY?: string;
   RAZORPAY_PLAN_HALF_YEARLY?: string;
   RAZORPAY_PLAN_YEARLY?: string;
+  /** "true" turns on certificate scanning, which bills per document read. */
+  DOCUMENT_SCAN_ENABLED?: string;
+  /** Overridable so a stronger model can be adopted without a code change. */
+  DOCUMENT_SCAN_MODEL?: string;
+  VERTEX_LOCATION?: string;
 }
 
 // `ProcessEnv` declares only an index signature, so a direct annotation trips

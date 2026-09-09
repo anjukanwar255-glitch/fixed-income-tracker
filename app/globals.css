@@ -350,3 +350,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 @media (max-width: 700px) {
   .subscription-shell,.legal-shell { padding:16px 12px; }.subscription-card,.legal-card { border-radius:21px; padding:21px 17px; }.pricing-grid { grid-template-columns:1fr; }.pricing-card { min-height:0; }.detail-actions { justify-content:flex-start; }.settings-actions > button { flex:1; }.document-actions { flex-wrap:nowrap; }
 }
+
+/* Scan-in-progress spinner. Held still for anyone who has asked their system
+   not to animate, so the icon still reads as "working" without moving. */
+@keyframes portfolio-spin { to { transform: rotate(360deg); } }
+.spinning { animation: portfolio-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }

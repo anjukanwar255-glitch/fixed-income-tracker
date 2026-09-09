@@ -10,8 +10,10 @@ import {
   ChevronRight,
   FileText,
   Landmark,
+  Loader2,
   LockKeyhole,
   ReceiptIndianRupee,
+  ScanLine,
   UploadCloud,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -102,6 +104,64 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [notes, setNotes] = useState(initialInvestment?.notes ?? "");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [scanning, setScanning] = useState(false);
+
+  /**
+   * Reads a certificate and fills in what it finds.
+   *
+   * Only empty fields are written, so a scan can never overwrite something
+   * already typed, and the result is left in the form for the investor to
+   * check rather than saved. Every field the document did not yield stays
+   * blank instead of being guessed at.
+   */
+  const scanDocument = async (file: File) => {
+    if (!allowedDocumentTypes.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES) {
+      toast.error("Upload a PDF, JPG, JPEG or PNG up to 10 MB");
+      return;
+    }
+    setScanning(true);
+    try {
+      const response = await apiFetch("/api/investments/scan", {
+        method: "POST",
+        headers: { "content-type": file.type },
+        body: file,
+      });
+      const payload = await response.json() as { fields?: Record<string, unknown>; error?: string };
+      if (!response.ok || !payload.fields) throw new Error(payload.error ?? "The document could not be read");
+
+      const found = payload.fields;
+      const fillText = (value: unknown, current: string, set: (next: string) => void) => {
+        if (typeof value === "string" && value && !current) { set(value); return true; }
+        return false;
+      };
+      const fillNumber = (value: unknown, current: string, set: (next: string) => void) => {
+        if (typeof value === "number" && !current) { set(String(value)); return true; }
+        return false;
+      };
+
+      let filled = 0;
+      filled += Number(fillText(found.investmentName, name, setName));
+      filled += Number(fillText(found.issuerName, issuer, setIssuer));
+      filled += Number(fillText(found.investmentNumber, number, setNumber));
+      filled += Number(fillText(found.investmentDate, "", setInvestmentDate));
+      filled += Number(fillNumber(found.amountPaidRupees, amount, setAmount));
+      filled += Number(fillNumber(found.faceValueRupees, faceValue, setFaceValue));
+      filled += Number(fillNumber(found.interestRatePercent, rate, setRate));
+      filled += Number(fillText(found.interestStartDate, interestStartDate, setInterestStartDate));
+      filled += Number(fillText(found.firstPayoutDate, firstPayoutDate, setFirstPayoutDate));
+      filled += Number(fillText(found.maturityDate, maturityDate, setMaturityDate));
+      filled += Number(fillText(found.notes, notes, setNotes));
+      if (typeof found.payoutFrequency === "string") { setFrequency(found.payoutFrequency as PayoutFrequency); filled += 1; }
+      if (typeof found.dayCountBasis === "string") { setDayCountBasis(found.dayCountBasis as DayCountBasis); filled += 1; }
+      if (typeof found.interestType === "string") { setInterestType(found.interestType as InterestType); filled += 1; }
+
+      toast.success(filled ? `Filled ${filled} field${filled === 1 ? "" : "s"} — check each one against the document` : "Nothing could be read from that document");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The document could not be read");
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const resolvedBankName = bankOption === MANUAL_BANK ? manualBankName.trim() : bankOption;
   const bondDocument = isBondType(type);
@@ -219,6 +279,21 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
           {step === 2 && (
             <div className="form-section">
               <FormHeading title="Investment details" description="Enter the values shown on the receipt or certificate." />
+              <label className="upload-zone">
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                  disabled={scanning}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    event.currentTarget.value = "";
+                    if (file) void scanDocument(file);
+                  }}
+                />
+                {scanning ? <Loader2 className="spinning" aria-hidden="true" /> : <ScanLine aria-hidden="true" />}
+                <b>{scanning ? "Reading the document…" : "Scan a certificate or statement"}</b>
+                <span>Fills the form for you · check every value before saving</span>
+              </label>
               <div className="field-grid">
                 <Field label="Investment name" value={name} setValue={setName} placeholder="e.g. Secure Income FD" />
                 {/*
