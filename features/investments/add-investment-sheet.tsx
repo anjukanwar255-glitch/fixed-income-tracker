@@ -8,6 +8,8 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Eye,
+  EyeOff,
   FileText,
   Landmark,
   Loader2,
@@ -455,8 +457,8 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                 <div className="form-field"><Label>Payment mode</Label><Select value={paymentMode} onValueChange={setPaymentMode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="bank-transfer">Bank transfer</SelectItem><SelectItem value="cheque">Cheque</SelectItem><SelectItem value="broker-wallet">Broker wallet</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
                 <Field label="Nominee" value={nominee} setValue={setNominee} placeholder="Optional" />
                 <Field label="Broker / platform" value={broker} setValue={setBroker} placeholder="Who the purchase went through" maxLength={100} />
-                <Field label="DP ID" value={dpId} setValue={setDpId} placeholder="Optional · e.g. IN304877" maxLength={40} />
-                <Field label="Demat client ID" value={clientId} setValue={setClientId} placeholder="Optional" maxLength={40} />
+                <MaskedField label="DP ID" value={dpId} setValue={setDpId} placeholder="Optional · e.g. IN304877" maxLength={40} />
+                <MaskedField label="Demat client ID" value={clientId} setValue={setClientId} placeholder="Optional" maxLength={40} />
                 <Field label="Order / settlement reference" value={orderReference} setValue={setOrderReference} placeholder="Optional" maxLength={80} />
                 <Field label="Advisor name" value={advisor} setValue={setAdvisor} placeholder="Optional" />
               </div>
@@ -542,6 +544,36 @@ function FormHeading({ title, description }: { title: string; description: strin
 function Field({ label, value, setValue, ...props }: { label: string; value: string; setValue: (value: string) => void } & Omit<React.ComponentProps<typeof Input>, "value" | "onChange">) {
   const id = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return <div className="form-field"><Label htmlFor={id}>{label}</Label><Input id={id} value={value} onChange={(event) => setValue(event.target.value)} {...props} /></div>;
+}
+
+/**
+ * A field whose value is hidden until asked for.
+ *
+ * The DP and client ids together identify a demat account, so they are treated
+ * the way the rest of the app treats account numbers — kept out of sight on a
+ * screen someone might be sharing or standing beside. They are still stored
+ * whole, because reconciling a holding against the depository needs them whole;
+ * it is only the display that is guarded.
+ */
+function MaskedField({ label, value, setValue, ...props }: { label: string; value: string; setValue: (value: string) => void } & Omit<React.ComponentProps<typeof Input>, "value" | "onChange" | "type">) {
+  const [revealed, setRevealed] = useState(false);
+  const id = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  return (
+    <div className="form-field">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="masked-field">
+        <Input id={id} type={revealed ? "text" : "password"} value={value} onChange={(event) => setValue(event.target.value)} {...props} />
+        <button
+          type="button"
+          onClick={() => setRevealed((shown) => !shown)}
+          aria-label={revealed ? `Hide ${label}` : `Show ${label}`}
+          aria-pressed={revealed}
+        >
+          {revealed ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function ToggleRow({ label, description, checked, onCheckedChange }: { label: string; description: string; checked: boolean; onCheckedChange: (checked: boolean) => void }) {
