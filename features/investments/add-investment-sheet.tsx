@@ -126,6 +126,13 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
       toast.error("Each file must be a PDF, JPG, JPEG or PNG up to 10 MB");
       return;
     }
+    // A bond takes two documents to describe: the deal sheet names the issuer,
+    // coupon and price, while the schedule shows how interest behaves month to
+    // month. One alone leaves fields the other would have filled — worth
+    // saying, but not worth refusing to read what they did attach.
+    if (bondDocument && files.length === 1) {
+      toast.warning("Scanning one document. The deal sheet and the repayment schedule together fill far more.");
+    }
     setScanning(true);
     try {
       const form = new FormData();
@@ -319,8 +326,16 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                   }}
                 />
                 {scanning ? <Loader2 className="spinning" aria-hidden="true" /> : <ScanLine aria-hidden="true" />}
-                <b>{scanning ? "Reading the documents…" : "Scan certificates or statements"}</b>
-                <span>Attach the deal sheet and the repayment schedule together · check every value before saving</span>
+                <b>{scanning ? "Reading the documents…" : bondDocument ? "Attach both documents to scan" : "Scan a receipt or certificate"}</b>
+                {bondDocument ? (
+                  <span className="scan-wanted">
+                    <i>Deal sheet or bond agreement</i>
+                    <i>Repayment or interest schedule</i>
+                  </span>
+                ) : (
+                  <span>The deposit receipt or certificate</span>
+                )}
+                <span>Select both together · every value is yours to check before saving</span>
               </label>
               <div className="field-grid">
                 <Field label="Investment name" value={name} setValue={setName} placeholder="e.g. Secure Income FD" />

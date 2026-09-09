@@ -356,3 +356,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 @keyframes portfolio-spin { to { transform: rotate(360deg); } }
 .spinning { animation: portfolio-spin 1s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
+
+/* The two documents a bond scan wants, listed so the ask is explicit rather
+   than left to a sentence the reader skims past. */
+.scan-wanted { display:flex; flex-direction:column; gap:3px; margin-top:8px; }
+.scan-wanted i { color:#0b7770; font-size:.7rem; font-style:normal; font-weight:600; }
+.scan-wanted i::before { content:"+ "; opacity:.7; }
