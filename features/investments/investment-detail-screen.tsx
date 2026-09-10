@@ -65,8 +65,12 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
 
   const annualInterest = calculateInterest(investment.principalPaise, investment.annualRateBps);
   const receivedSchedules = investment.schedule.filter((item) => item.status === "received" || item.status === "partial-received");
-  const grossReceived = receivedSchedules.reduce((sum, item) => sum + (item.receivedAmountPaise ?? 0n) + (item.actualTdsPaise ?? 0n), 0n);
-  const netReceived = receivedSchedules.reduce((sum, item) => sum + (item.receivedAmountPaise ?? 0n), 0n);
+  // A credit on an amortising bond is part interest and part principal
+  // coming back. Counting the whole of it as interest would overstate the
+  // return and, at the year end, the income being declared.
+  const principalReceived = receivedSchedules.reduce((sum, item) => sum + item.principalRepaidPaise, 0n);
+  const grossReceived = receivedSchedules.reduce((sum, item) => sum + (item.receivedAmountPaise ?? 0n) + (item.actualTdsPaise ?? 0n) - item.principalRepaidPaise, 0n);
+  const netReceived = receivedSchedules.reduce((sum, item) => sum + (item.receivedAmountPaise ?? 0n) - item.principalRepaidPaise, 0n);
   const actualTdsTotal = receivedSchedules.reduce((sum, item) => sum + (item.actualTdsPaise ?? 0n), 0n);
   const expectedTdsTotal = investment.schedule.reduce((sum, item) => sum + item.expectedTdsPaise, 0n);
   const reflectedTdsTotal = investment.schedule.reduce((sum, item) => sum + (item.reflectedAmountPaise ?? 0n), 0n);
@@ -76,6 +80,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
     ["Annual interest", formatMoney(annualInterest)],
     ["Interest received", formatMoney(grossReceived)],
     ["Pending interest", formatMoney(annualInterest > grossReceived ? annualInterest - grossReceived : 0n)],
+    ["Principal repaid", formatMoney(principalReceived)],
     ["TDS deducted", formatMoney(actualTdsTotal)],
     ["Net interest", formatMoney(netReceived)],
     ["Next payout", nextPayout ? formatDate(nextPayout.dueDate) : "—"],
@@ -106,6 +111,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
           receivedAmountPaise: payoutDialog.outcome === "received" ? Number(parseRupeesToPaise(receivedAmount)) : undefined,
           receivedDate: payoutDialog.outcome === "received" ? receivedDate : undefined,
           actualTdsPaise: payoutDialog.outcome === "received" ? Number(parseRupeesToPaise(actualTds)) : undefined,
+          principalRepaidPaise: Number(payoutDialog.payout.principalRepaidPaise),
           bankAccountNumber: accountNumber,
           paymentReference,
           followUpDate: payoutDialog.outcome === "not-received" && followUpDate ? followUpDate : undefined,
@@ -306,7 +312,14 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
       <Dialog open={Boolean(payoutDialog)} onOpenChange={(open) => !open && setPayoutDialog(null)}>
         <DialogContent className="confirm-dialog">
           <DialogHeader><DialogTitle>{payoutDialog?.outcome === "received" ? "Confirm payout received" : "Mark payout not received"}</DialogTitle><DialogDescription>{payoutDialog?.outcome === "received" ? "Record the amount actually credited. This does not verify PAN credit." : "Keep this payout visible for follow-up with the issuer."}</DialogDescription></DialogHeader>
-          <div className="confirmation-expected"><span>Expected net amount</span><strong>{payoutDialog ? formatMoney(payoutDialog.payout.expectedNetPaise) : "—"}</strong></div>
+          <div className="confirmation-expected"><span>Expected credit</span><strong>{payoutDialog ? formatMoney(payoutDialog.payout.expectedNetPaise) : "—"}</strong></div>
+          {payoutDialog && payoutDialog.payout.principalRepaidPaise > 0n && (
+            <div className="confirmation-split">
+              <span><small>Interest</small><b>{formatMoney(payoutDialog.payout.grossInterestPaise)}</b></span>
+              <span><small>Principal returned</small><b>{formatMoney(payoutDialog.payout.principalRepaidPaise)}</b></span>
+              <span><small>TDS</small><b>{formatMoney(payoutDialog.payout.expectedTdsPaise)}</b></span>
+            </div>
+          )}
           {payoutDialog?.outcome === "received" ? <>
             <FormField label="Amount received" id="received-amount"><Input id="received-amount" inputMode="decimal" value={receivedAmount} onChange={(event) => setReceivedAmount(event.target.value)} /></FormField>
             <FormField label="Received date" id="received-date"><Input id="received-date" type="date" value={receivedDate} onChange={(event) => setReceivedDate(event.target.value)} /></FormField>
@@ -343,9 +356,9 @@ function PayoutList({ investment, onConfirm, limit }: { investment: PortfolioInv
     return <div className="detail-payout-row" key={payout.id}>
       <span className={`payout-date-icon ${settled ? "received" : ""}`}><CalendarDays aria-hidden="true" /></span>
       <span className="detail-payout-date"><b>{formatDate(payout.dueDate)}</b><small>{payout.financialYear}</small></span>
-      <span><small>Gross</small><b>{formatMoney(payout.grossInterestPaise)}</b></span>
+      <span><small>Interest</small><b>{formatMoney(payout.grossInterestPaise)}</b>{payout.principalRepaidPaise > 0n && <small>+{formatMoney(payout.principalRepaidPaise)} principal</small>}</span>
       <span><small>Expected TDS</small><b>{formatMoney(payout.expectedTdsPaise)}</b></span>
-      <span><small>{settled ? "Received" : "Expected net"}</small><b>{formatMoney(payout.receivedAmountPaise ?? payout.expectedNetPaise)}</b></span>
+      <span><small>{settled ? "Received" : "Expected credit"}</small><b>{formatMoney(payout.receivedAmountPaise ?? payout.expectedNetPaise)}</b></span>
       {settled ? <Badge className="status-received"><CheckCircle2 /> {labelType(payout.status)}</Badge> : payout.status === "not-received" ? <Button size="sm" onClick={() => onConfirm(payout, "received")}>Update receipt</Button> : actionable ? <span className="payout-actions"><Button size="sm" onClick={() => onConfirm(payout, "received")}>Received</Button><Button size="sm" variant="outline" onClick={() => onConfirm(payout, "not-received")}>Not received</Button></span> : <Badge className="status-upcoming"><Clock3 /> Upcoming</Badge>}
     </div>;
   })}</div>;

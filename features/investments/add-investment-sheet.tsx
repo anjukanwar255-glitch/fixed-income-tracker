@@ -118,6 +118,12 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
    * clear which paper is which — both to whoever is filling the form and to
    * the reader, which is told the role of each file it is given.
    */
+  /**
+   * The issuer's own repayment schedule, as read off the documents. Kept so
+   * each payout can be checked against what was promised — including how much
+   * of it is principal coming back, which no rate can tell you.
+   */
+  const [scannedSchedule, setScannedSchedule] = useState<{ dueDate: string; interestPaise: number; principalPaise: number }[]>([]);
   const [dealSheetFile, setDealSheetFile] = useState<File | null>(null);
   const [scheduleFile, setScheduleFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -220,6 +226,17 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
         ? previousCouponDate(scannedFirstPayout, scannedFrequency)
         : null;
       applyText(statedStart ?? derivedStart, setInterestStartDate);
+
+      if (Array.isArray(found.repaymentSchedule)) {
+        const rows = (found.repaymentSchedule as { dueDate: string; interestRupees: number; principalRupees: number }[])
+          .map((row) => ({
+            dueDate: row.dueDate,
+            interestPaise: Math.round(row.interestRupees * 100),
+            principalPaise: Math.round(row.principalRupees * 100),
+          }));
+        setScannedSchedule(rows);
+        if (rows.length) filled += 1;
+      }
 
       // These are the papers this investment should be filed with, so they
       // carry through to the documents step instead of being asked for twice.
@@ -325,7 +342,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     };
     setSaving(true);
     try {
-      const result = await syncInvestment(investment, { bankName: resolvedBankName, accountNumber, paymentMode, nominee, broker, dpId, clientId, orderReference, advisor, notes }, { panLinked, declarationApplicable }, selectedFile);
+      const result = await syncInvestment(investment, { bankName: resolvedBankName, accountNumber, paymentMode, nominee, broker, dpId, clientId, orderReference, advisor, notes }, scannedSchedule, { panLinked, declarationApplicable }, selectedFile);
       if (result.warning) toast.warning(result.warning);
       await onSave(result.investmentId);
       onOpenChange(false);
@@ -346,7 +363,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     setDeclarationApplicable(false); setBankOption(""); setManualBankName(""); setAccountNumber(""); setPaymentMode("bank-transfer");
     setNominee(""); setBroker(""); setAdvisor(""); setNotes(""); setSelectedFile(null);
     setFaceValue(""); setInterestStartDate(""); setDpId(""); setClientId(""); setOrderReference("");
-    setScannedFiles([]); setDealSheetFile(null); setScheduleFile(null);
+    setScannedFiles([]); setDealSheetFile(null); setScheduleFile(null); setScannedSchedule([]);
   };
 
   return (
@@ -641,7 +658,9 @@ function CalculationPreview({ projection, rate, amount }: { projection: ReturnTy
   );
 }
 
-async function syncInvestment(investment: PortfolioInvestment, extra: Record<string, string>, flags: { panLinked: boolean; declarationApplicable: boolean }, file: File | null) {
+type ScheduleRow = { dueDate: string; interestPaise: number; principalPaise: number };
+
+async function syncInvestment(investment: PortfolioInvestment, extra: Record<string, string>, schedule: ScheduleRow[], flags: { panLinked: boolean; declarationApplicable: boolean }, file: File | null) {
     const response = await apiFetch(investment.id ? `/api/investments/${investment.id}` : "/api/investments", {
       method: investment.id ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
@@ -668,6 +687,9 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
         declarationApplicable: flags.declarationApplicable,
         bankName: extra.bankName,
         accountNumber: extra.accountNumber,
+        // Sent only when the documents supplied one; otherwise the server
+        // projects the schedule from the rate as before.
+        repaymentSchedule: schedule.length ? schedule : undefined,
         paymentMode: extra.paymentMode,
         nominee: extra.nominee,
         brokerPlatform: extra.broker,

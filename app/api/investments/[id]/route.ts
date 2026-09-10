@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { calculateFinancialYear, generatePayoutSchedule } from "@/core/finance/calculations";
+import { calculateFinancialYear, generatePayoutSchedule, scheduleFromDocument } from "@/core/finance/calculations";
 import type { InvestmentDraft } from "@/core/models/financial";
 import {
   activityLogs,
@@ -44,6 +44,17 @@ const updateInput = z.object({
   declarationApplicable: z.boolean().default(false),
   bankName: z.string().trim().max(100).optional(),
   accountNumber: z.string().trim().regex(/^\d{9,18}$/, "Enter the full account number").optional().or(z.literal("")),
+  /**
+   * The issuer's own repayment schedule, when the paperwork supplied one. It
+   * takes precedence over a schedule computed from the rate: an amortising
+   * bond shrinks its own balance, so no formula reproduces what it will pay.
+   */
+  repaymentSchedule: z.array(z.object({
+    dueDate: z.string().date(),
+    interestPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    principalPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  })).max(600).optional(),
+
   paymentMode: z.string().trim().max(50).optional(),
   nominee: z.string().trim().max(100).optional(),
   brokerPlatform: z.string().trim().max(100).optional(),
@@ -114,7 +125,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     maturityDate: input.maturityDate, expectedMaturityPaise: input.expectedMaturityPaise === undefined ? undefined : BigInt(input.expectedMaturityPaise),
     tdsApplicable: input.tdsApplicable, expectedTdsRateBps: input.expectedTdsRateBps,
   };
-  const schedule = generatePayoutSchedule(draft);
+  const documentRows = input.repaymentSchedule?.length ? input.repaymentSchedule : null;
+  const schedule = documentRows
+    ? scheduleFromDocument(documentRows.map((row) => ({
+        dueDate: row.dueDate,
+        interestPaise: BigInt(row.interestPaise),
+        principalPaise: BigInt(row.principalPaise),
+      })), draft)
+    : generatePayoutSchedule(draft);
+  const scheduleSource = documentRows ? "document" : "generated";
   const now = new Date().toISOString();
   const nextRevision = existing.revision + 1;
   const operations: BatchOperation[] = [
@@ -146,8 +165,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       operations.push(setOp(payoutSchedules(identity.uid).doc(payoutId), {
         id: payoutId, investmentId: id, dueDate: payout.dueDate,
         financialYear: payout.financialYear, grossInterestPaise: Number(payout.grossInterestPaise), expectedTdsRateBps: input.expectedTdsRateBps,
+        principalRepaidPaise: Number(payout.principalRepaidPaise),
         expectedTdsPaise: Number(payout.expectedTdsPaise), expectedNetPaise: Number(payout.expectedNetPaise), status: payout.status,
-        source: "generated", revision: nextRevision, createdAt: now, updatedAt: now, deletedAt: null,
+        source: scheduleSource, revision: nextRevision, createdAt: now, updatedAt: now, deletedAt: null,
       }));
     }
   }

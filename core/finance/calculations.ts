@@ -4,6 +4,7 @@ import type {
   InvestmentDraft,
   PayoutFrequency,
   PayoutProjection,
+  RepaymentRow,
 } from "@/core/models/financial";
 
 const BASIS_POINTS = 10_000n;
@@ -175,11 +176,52 @@ export function generatePayoutSchedule(draft: InvestmentDraft): PayoutProjection
       dueDate,
       financialYear: calculateFinancialYear(dueDate),
       grossInterestPaise: gross,
+      // A projection built from a rate knows nothing about principal coming
+      // back early; only the issuer's own schedule shows that.
+      principalRepaidPaise: 0n,
       expectedTdsPaise: expectedTds,
       expectedNetPaise: calculateNetPayout(gross, expectedTds),
       status: "upcoming",
     };
   });
+}
+
+/**
+ * Turns an issuer's printed repayment schedule into the payouts to track.
+ *
+ * Preferred over `generatePayoutSchedule` whenever the paperwork supplies one.
+ * A schedule computed from a rate assumes the principal sits untouched until
+ * maturity, which is wrong for any bond that amortises: every repayment
+ * shrinks the balance, so each later coupon is smaller than the formula says.
+ * The document states what the issuer will actually pay, and that is what a
+ * payout should be checked against.
+ *
+ * TDS is still applied here rather than read off the page — the rate depends
+ * on the holder's own PAN and declarations, not on the security.
+ */
+export function scheduleFromDocument(
+  rows: RepaymentRow[],
+  draft: Pick<InvestmentDraft, "tdsApplicable" | "expectedTdsRateBps">,
+): PayoutProjection[] {
+  return [...rows]
+    .sort((left, right) => left.dueDate.localeCompare(right.dueDate))
+    .map((row, index) => {
+      const gross = row.interestPaise < 0n ? 0n : row.interestPaise;
+      const principal = row.principalPaise < 0n ? 0n : row.principalPaise;
+      const expectedTds = draft.tdsApplicable
+        ? calculateTDS(gross, draft.expectedTdsRateBps)
+        : 0n;
+      return {
+        id: `projection-${index + 1}`,
+        dueDate: row.dueDate,
+        financialYear: calculateFinancialYear(row.dueDate),
+        grossInterestPaise: gross,
+        principalRepaidPaise: principal,
+        expectedTdsPaise: expectedTds,
+        expectedNetPaise: calculateNetPayout(gross, expectedTds) + principal,
+        status: "upcoming",
+      } satisfies PayoutProjection;
+    });
 }
 
 export function calculateCompoundMaturity(

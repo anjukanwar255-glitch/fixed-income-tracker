@@ -44,8 +44,12 @@ export type ScannedInvestment = {
   payoutFrequency?: string;
   dayCountBasis?: string;
   interestType?: string;
+  repaymentSchedule?: { dueDate: string; interestRupees: number; principalRupees: number }[];
   notes?: string;
 };
+
+/** A schedule longer than this is a misread, not a bond. */
+const MAX_SCHEDULE_ROWS = 600;
 
 const responseSchema = {
   type: Type.OBJECT,
@@ -69,6 +73,19 @@ const responseSchema = {
     payoutFrequency: { type: Type.STRING, description: "One of: monthly, quarterly, half-yearly, yearly, on-maturity." },
     dayCountBasis: { type: Type.STRING, description: "One of: actual-365, actual-actual, 30-360. Use actual-actual when payouts in a leap year are smaller than the equivalent period in other years." },
     interestType: { type: Type.STRING, description: "One of: simple, compound, cumulative." },
+    repaymentSchedule: {
+      type: Type.ARRAY,
+      description: "Every row of the repayment or payment schedule, in order, when one is supplied. Copy the rows as printed — this is what the investor will check each payment against. Omit the field entirely if no schedule is present; never invent rows to fill a gap.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          dueDate: { type: Type.STRING, description: "Payment date for this row, as YYYY-MM-DD." },
+          interestRupees: { type: Type.NUMBER, description: "Interest paid in this row. Use 0 if the row repays only principal." },
+          principalRupees: { type: Type.NUMBER, description: "Principal repaid in this row. Use 0 for an interest-only row. Many bonds return the whole principal in the final row; some return a part of it every period." },
+          totalRupees: { type: Type.NUMBER, description: "Total paid in this row, before any tax withheld. Report it as printed even where it equals the interest." },
+        },
+      },
+    },
     notes: { type: Type.STRING, description: "Anything material that does not fit the fields above, or a note about what could not be read." },
   },
 } as const;
@@ -88,6 +105,8 @@ Points that are commonly got wrong:
 - The interest rate is the coupon printed in the terms — "Coupon Rate" or "Interest Rate". A "YTM", "XIRR" or "returns" percentage is a different figure and must never be used as the rate. Both often appear on the same page, a line or two apart.
 - Report accrued interest as the printed number in accruedInterestPaidRupees. Do not convert it into a date: its presence is what matters, and the date it implies is worked out afterwards from the coupon schedule.
 - Infer dayCountBasis from a payment schedule when one is present: if payments track the number of days in each month, it is an actual basis; if February in a leap year pays proportionally less than the equivalent period in other years, it is actual-actual. If every period pays an identical amount regardless of month length, it is 30-360.
+
+When a repayment or payment schedule is supplied, return all of its rows in repaymentSchedule, in order and as printed. Do not summarise it, sample it, or stop early — the investor checks each payment against its row when the money arrives, so a schedule missing its later years is worse than none. Split each row into interest and principal where the document distinguishes them; where it prints only a total, report the total and leave the parts at 0 rather than dividing it yourself.
 
 Put anything material that has no field of its own into notes — a premium or discount over face value, accrued interest paid to the seller, the number of units, the ISIN, or a figure you were unsure about and left out.
 
@@ -206,6 +225,38 @@ function sanitise(raw: Record<string, unknown>): ScannedInvestment {
     const candidate = typeof value === "string" ? value.trim().toLowerCase() : "";
     return allowed.includes(candidate) ? candidate : undefined;
   };
+  /*
+   * A row is kept only if it has a usable date and at least one amount. Where
+   * the document prints a total but no split, the parts are worked out here:
+   * subtracting two printed numbers is arithmetic worth doing, and it is the
+   * split the investor is trying to check.
+   */
+  if (Array.isArray(raw.repaymentSchedule)) {
+    const rows = raw.repaymentSchedule
+      .slice(0, MAX_SCHEDULE_ROWS)
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const row = entry as Record<string, unknown>;
+        const dueDate = isoDate(row.dueDate);
+        if (!dueDate) return null;
+        const amount = (value: unknown) =>
+          typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+        const total = amount(row.totalRupees);
+        let interest = amount(row.interestRupees);
+        let principal = amount(row.principalRupees);
+        if (total !== null && interest !== null && principal === null) principal = total - interest;
+        if (total !== null && principal !== null && interest === null) interest = total - principal;
+        if (interest === null && principal === null && total !== null) { interest = total; principal = 0; }
+        if (interest === null && principal === null) return null;
+        interest = Math.max(interest ?? 0, 0);
+        principal = Math.max(principal ?? 0, 0);
+        if (interest === 0 && principal === 0) return null;
+        return { dueDate, interestRupees: interest, principalRupees: principal };
+      })
+      .filter((row) => row !== null);
+    if (rows.length) result.repaymentSchedule = rows;
+  }
+
   result.payoutFrequency = oneOf(raw.payoutFrequency, ["monthly", "quarterly", "half-yearly", "yearly", "on-maturity"]);
   result.dayCountBasis = oneOf(raw.dayCountBasis, ["actual-365", "actual-actual", "30-360"]);
   result.interestType = oneOf(raw.interestType, ["simple", "compound", "cumulative"]);

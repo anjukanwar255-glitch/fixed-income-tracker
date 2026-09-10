@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { calculateFinancialYear, generatePayoutSchedule } from "@/core/finance/calculations";
+import { calculateFinancialYear, generatePayoutSchedule, scheduleFromDocument } from "@/core/finance/calculations";
 import type { InvestmentDraft } from "@/core/models/financial";
 import { requireEntitlement } from "@/lib/billing";
 import { createUserBackup } from "@/lib/backups";
@@ -47,6 +47,17 @@ const investmentInput = z.object({
   declarationApplicable: z.boolean().default(false),
   bankName: z.string().trim().max(100).optional(),
   accountNumber: z.string().trim().regex(/^\d{9,18}$/, "Enter the full account number").optional().or(z.literal("")),
+  /**
+   * The issuer's own repayment schedule, when the paperwork supplied one. It
+   * takes precedence over a schedule computed from the rate: an amortising
+   * bond shrinks its own balance, so no formula reproduces what it will pay.
+   */
+  repaymentSchedule: z.array(z.object({
+    dueDate: z.string().date(),
+    interestPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    principalPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  })).max(600).optional(),
+
   paymentMode: z.string().trim().max(50).optional(),
   nominee: z.string().trim().max(100).optional(),
   brokerPlatform: z.string().trim().max(100).optional(),
@@ -177,7 +188,15 @@ export async function POST(request: Request) {
     tdsApplicable: input.tdsApplicable,
     expectedTdsRateBps: input.expectedTdsRateBps,
   };
-  const schedule = generatePayoutSchedule(draft);
+  const documentRows = input.repaymentSchedule?.length ? input.repaymentSchedule : null;
+  const schedule = documentRows
+    ? scheduleFromDocument(documentRows.map((row) => ({
+        dueDate: row.dueDate,
+        interestPaise: BigInt(row.interestPaise),
+        principalPaise: BigInt(row.principalPaise),
+      })), draft)
+    : generatePayoutSchedule(draft);
+  const scheduleSource = documentRows ? "document" : "generated";
 
   try {
     // Ensures the parent document exists before writing into its
@@ -250,11 +269,12 @@ export async function POST(request: Request) {
           dueDate: payout.dueDate,
           financialYear: payout.financialYear,
           grossInterestPaise: Number(payout.grossInterestPaise),
+          principalRepaidPaise: Number(payout.principalRepaidPaise),
           expectedTdsRateBps: input.expectedTdsRateBps,
           expectedTdsPaise: Number(payout.expectedTdsPaise),
           expectedNetPaise: Number(payout.expectedNetPaise),
           status: payout.status,
-          source: "generated",
+          source: scheduleSource,
           revision: 1,
           createdAt,
           updatedAt: createdAt,
@@ -268,7 +288,9 @@ export async function POST(request: Request) {
         action: "created",
         entityType: "investment",
         entityId: investmentId,
-        summary: "Investment created and expected payout schedule generated",
+        summary: documentRows
+          ? "Investment created with the repayment schedule from its documents"
+          : "Investment created and expected payout schedule generated",
         nextSnapshot: JSON.stringify({
           investmentName: input.investmentName,
           principalPaise: input.principalPaise,

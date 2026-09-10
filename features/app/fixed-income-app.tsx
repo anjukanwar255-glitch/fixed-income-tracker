@@ -291,6 +291,7 @@ type StoredInvestment = {
     dueDate: string;
     financialYear: string;
     grossInterestPaise: number;
+    principalRepaidPaise: number | null;
     expectedTdsPaise: number;
     expectedNetPaise: number;
     status: PortfolioInvestment["schedule"][number]["status"];
@@ -349,6 +350,7 @@ function fromStoredInvestment(value: StoredInvestment): PortfolioInvestment {
       dueDate: payout.dueDate,
       financialYear: payout.financialYear,
       grossInterestPaise: BigInt(payout.grossInterestPaise),
+      principalRepaidPaise: BigInt(payout.principalRepaidPaise ?? 0),
       expectedTdsPaise: BigInt(payout.expectedTdsPaise),
       expectedNetPaise: BigInt(payout.expectedNetPaise),
       status: resolvePayoutStatus(payout.status, payout.dueDate),

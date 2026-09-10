@@ -202,3 +202,33 @@ test("stepping back a period keeps month-ends and crosses years", () => {
 test("a custom schedule has no period to step back through", () => {
   assert.equal(finance.previousCouponDate("2026-10-01", "custom"), null);
 });
+
+test("a document schedule is used as printed, principal and all", () => {
+  const schedule = finance.scheduleFromDocument([
+    { dueDate: "2025-11-01", interestPaise: 72_083n, principalPaise: 0n },
+    { dueDate: "2025-10-01", interestPaise: 72_083n, principalPaise: 250_000n },
+  ], { tdsApplicable: false, expectedTdsRateBps: 0 });
+
+  // Rows are ordered by date regardless of the order they were read in.
+  assert.deepEqual(schedule.map((row) => row.dueDate), ["2025-10-01", "2025-11-01"]);
+  assert.equal(schedule[0].principalRepaidPaise, 250_000n);
+  // The expected credit is the interest plus the principal coming back.
+  assert.equal(schedule[0].expectedNetPaise, 322_083n);
+  assert.equal(schedule[1].principalRepaidPaise, 0n);
+  assert.equal(schedule[1].expectedNetPaise, 72_083n);
+});
+
+test("TDS applies to the interest in a document row, never to the principal", () => {
+  const [row] = finance.scheduleFromDocument(
+    [{ dueDate: "2026-01-01", interestPaise: 100_000n, principalPaise: 500_000n }],
+    { tdsApplicable: true, expectedTdsRateBps: 1000 },
+  );
+  assert.equal(row.expectedTdsPaise, 10_000n);
+  assert.equal(row.expectedNetPaise, 590_000n);
+  assert.equal(row.financialYear, finance.calculateFinancialYear("2026-01-01"));
+});
+
+test("a generated schedule repays no principal along the way", () => {
+  const schedule = finance.generatePayoutSchedule(muthootDraft);
+  assert.ok(schedule.every((row) => row.principalRepaidPaise === 0n));
+});

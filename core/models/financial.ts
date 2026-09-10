@@ -73,7 +73,16 @@ export interface PayoutProjection {
   dueDate: string;
   financialYear: string;
   grossInterestPaise: bigint;
+  /**
+   * Principal returned with this payment. Zero for a bond that repays
+   * everything at the end, and the reason an amortising schedule cannot be
+   * worked out from a rate alone: each repayment shrinks the balance the next
+   * coupon is calculated on, so the issuer's own schedule is the only
+   * authority for it.
+   */
+  principalRepaidPaise: bigint;
   expectedTdsPaise: bigint;
+  /** What should land in the bank: interest after TDS, plus any principal. */
   expectedNetPaise: bigint;
   status: PayoutStatus;
   receivedAmountPaise?: bigint;
@@ -86,6 +95,13 @@ export interface PayoutProjection {
   reflectedAmountPaise?: bigint;
   tdsVerificationDate?: string;
   tdsStatus?: TdsStatus;
+}
+
+/** One row of an issuer's repayment schedule, as printed. */
+export interface RepaymentRow {
+  dueDate: string;
+  interestPaise: bigint;
+  principalPaise: bigint;
 }
 
 export interface InvestmentDocument {

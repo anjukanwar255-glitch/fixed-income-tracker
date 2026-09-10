@@ -101,6 +101,8 @@ export interface PayoutScheduleDoc extends Timestamps {
   dueDate: string;
   financialYear: string;
   grossInterestPaise: number;
+  /** Principal returned with this payment; absent on rows written before amortising schedules were stored. */
+  principalRepaidPaise?: number | null;
   expectedTdsRateBps: number;
   expectedTdsPaise: number;
   expectedNetPaise: number;
@@ -116,6 +118,8 @@ export interface PayoutTransactionDoc extends Timestamps {
   receivedAmountPaise?: number | null;
   receivedDate?: string | null;
   actualTdsPaise?: number | null;
+  /** How much of the credit was principal, so interest totals stay interest. */
+  principalRepaidPaise?: number | null;
   /** Full account the credit landed in. Older records hold only the last four digits, under `bankAccountLast4`. */
   bankAccountNumber?: string | null;
   bankAccountLast4?: string | null;
