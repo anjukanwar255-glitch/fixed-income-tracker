@@ -170,16 +170,38 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
       applyText(found.investmentDate, setInvestmentDate);
       applyNumber(found.amountPaidRupees, setAmount);
       applyNumber(found.faceValueRupees, setFaceValue);
-      applyNumber(found.expectedMaturityRupees, setMaturityAmount);
       applyNumber(found.interestRatePercent, setRate);
       applyText(found.firstPayoutDate, setFirstPayoutDate);
       applyText(found.maturityDate, setMaturityDate);
       applyText(found.notes, setNotes);
 
       const scannedFrequency = typeof found.payoutFrequency === "string" ? found.payoutFrequency as PayoutFrequency : null;
+      const scannedInterestType = typeof found.interestType === "string" ? found.interestType as InterestType : null;
       if (scannedFrequency) { setFrequency(scannedFrequency); filled += 1; }
       if (typeof found.dayCountBasis === "string") { setDayCountBasis(found.dayCountBasis as DayCountBasis); filled += 1; }
-      if (typeof found.interestType === "string") { setInterestType(found.interestType as InterestType); filled += 1; }
+      if (scannedInterestType) { setInterestType(scannedInterestType); filled += 1; }
+
+      /*
+       * A bond that pays its interest out along the way repays the principal
+       * and nothing else at the end, so the maturity amount is the face value
+       * — determinate, and not worth leaving blank just because no document
+       * prints it under that heading. A cumulative product is the opposite:
+       * the interest is rolled up into the final payment, so the figure has to
+       * come off the paperwork and is left empty when it does not.
+       */
+      const principalAtMaturity = typeof found.faceValueRupees === "number"
+        ? found.faceValueRupees
+        : typeof found.amountPaidRupees === "number" ? found.amountPaidRupees : null;
+      const repaysPrincipalOnly = scannedFrequency !== null
+        && scannedFrequency !== "on-maturity"
+        && scannedInterestType !== "cumulative";
+      if (typeof found.expectedMaturityRupees === "number") {
+        setMaturityAmount(String(found.expectedMaturityRupees));
+        filled += 1;
+      } else if (repaysPrincipalOnly && principalAtMaturity !== null) {
+        setMaturityAmount(String(principalAtMaturity));
+        filled += 1;
+      }
 
       /*
        * When the documents show interest was paid to the seller, the purchase

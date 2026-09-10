@@ -56,11 +56,11 @@ const responseSchema = {
     investmentDate: { type: Type.STRING, description: "Purchase or deposit date as YYYY-MM-DD." },
     amountPaidRupees: { type: Type.NUMBER, description: "Total rupees actually paid. Labelled 'Total Consideration' or 'Total Investment Amount' on a deal sheet. Includes any premium and accrued interest." },
     faceValueRupees: { type: Type.NUMBER, description: "The principal the issuer pays interest on and repays at maturity. Labelled 'Total Principal Amount', or the 'Face Value per Unit' multiplied by the 'Number of Units'. Report it whenever the document states it, even if you are unsure whether it differs from the amount paid." },
-    expectedMaturityRupees: { type: Type.NUMBER, description: "Total expected at maturity. For a bond repaying principal at maturity this is the face value. For a cumulative deposit it is the printed maturity value." },
+    expectedMaturityRupees: { type: Type.NUMBER, description: "Total expected on the maturity date. Read it from the final row of a repayment schedule when one is supplied — principal repaid plus any interest paid alongside it. Otherwise it is the printed maturity value on a cumulative deposit, or the face value for a bond that repays principal at maturity." },
     accruedInterestPaidRupees: { type: Type.NUMBER, description: "Interest paid to the seller for the part of the coupon period before the purchase, labelled 'Accrued Interest'. Report the printed number only. Present on a secondary-market purchase, absent on a fresh issue or deposit." },
     interestRatePercent: { type: Type.NUMBER, description: "The coupon or contracted interest rate per year, labelled 'Coupon Rate' or 'Interest Rate'. Never the YTM, XIRR or 'returns' figure, which often appears a line or two away." },
     interestStartDate: { type: Type.STRING, description: "Date interest begins accruing as YYYY-MM-DD, only if a document states it outright. Do not calculate it — reporting accruedInterestPaidRupees is enough." },
-    firstPayoutDate: { type: Type.STRING, description: "First interest payment date as YYYY-MM-DD." },
+    firstPayoutDate: { type: Type.STRING, description: "Date of the first interest payment, as YYYY-MM-DD. When a repayment or payment schedule is supplied, this is the date on its earliest interest row — take it from there. No document has to use the words 'first payout' for that row to be the answer." },
     maturityDate: { type: Type.STRING, description: "Maturity or redemption date as YYYY-MM-DD." },
     brokerName: { type: Type.STRING, description: "The broker, platform or distributor the purchase went through — whoever produced a deal sheet or contract note. This is not the issuer; both usually appear on the same page." },
     dpId: { type: Type.STRING, description: "Depository participant id, labelled 'DP ID'. Usually starts with IN for NSDL." },
@@ -78,6 +78,8 @@ const INSTRUCTIONS = `You are reading Indian fixed-income paperwork: a fixed dep
 You may be given more than one document for the same investment — typically a deal sheet stating the terms and a statement listing the payment schedule. Read all of them together and return one combined answer. Each tends to carry what the other omits: the deal sheet names the issuer and the coupon, the schedule shows how interest actually behaves month to month. Where two documents disagree, prefer the deal sheet, contract note or certificate over a statement or app screenshot.
 
 Extract only what the documents actually state. Omit any field you cannot read with confidence — a missing field is corrected in seconds, a wrong one silently distorts years of projected payouts. Never infer, average or calculate a value that is not printed.
+
+Reading a table is not calculating. A repayment schedule answers several of the fields below directly, and a value sitting in a row still counts as printed even when no heading uses the same words as the field name. In particular: the earliest interest row gives firstPayoutDate, the final row gives the maturity date and the amount expected at maturity, and the spacing between rows gives payoutFrequency. Take them. What you must not do is arrive at a number the documents never show — deriving a rate from amounts, averaging payments, or working a date back from an accrued figure.
 
 Points that are commonly got wrong:
 
