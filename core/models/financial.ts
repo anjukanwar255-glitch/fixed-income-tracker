@@ -139,12 +139,16 @@ export interface PortfolioInvestment extends InvestmentDraft {
   panLinked?: boolean;
   declarationApplicable?: boolean;
   bankName?: string;
+  /** IFSC of the receiving branch. Identifies bank and branch in one code. */
+  ifscCode?: string;
   /** Full receiving account number. Masked wherever it is shown. */
   accountNumber?: string;
   paymentMode?: string;
   nominee?: string;
   brokerPlatform?: string;
   advisorName?: string;
+  /** Ten-digit Indian mobile for the advisor, for chasing a missed payout. */
+  advisorMobile?: string;
   /**
    * Demat and trade references, as printed on a broker's deal sheet. Kept for
    * reconciling a holding against the broker and the depository — the DP and

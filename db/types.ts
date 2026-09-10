@@ -80,6 +80,7 @@ export interface InvestmentDoc extends Timestamps {
   declarationApplicable: boolean;
   bankName?: string | null;
   /** Full receiving account number. Masked wherever it is shown. */
+  ifscCode?: string | null;
   accountNumber?: string | null;
   paymentMode?: string | null;
   nominee?: string | null;
@@ -89,6 +90,7 @@ export interface InvestmentDoc extends Timestamps {
   clientId?: string | null;
   orderReference?: string | null;
   advisorName?: string | null;
+  advisorMobile?: string | null;
   notes?: string | null;
   status: string;
   financialYear: string;

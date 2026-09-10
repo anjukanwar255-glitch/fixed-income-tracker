@@ -32,6 +32,7 @@ export type ScannedInvestment = {
   dpId?: string;
   clientId?: string;
   orderReference?: string;
+  ifscCode?: string;
   investmentDate?: string;
   amountPaidRupees?: number;
   faceValueRupees?: number;
@@ -70,6 +71,7 @@ const responseSchema = {
     dpId: { type: Type.STRING, description: "Depository participant id, labelled 'DP ID'. Usually starts with IN for NSDL." },
     clientId: { type: Type.STRING, description: "Demat client id, labelled 'Client ID' or 'Beneficiary ID'. Not the broker's own client code." },
     orderReference: { type: Type.STRING, description: "The reference for this trade — 'Order ID', 'Settlement Number' or 'Transaction ID'. Prefer the order id when several appear." },
+    ifscCode: { type: Type.STRING, description: "IFSC of the bank branch the payouts are credited to, an eleven-character code whose fifth character is always 0, e.g. HDFC0001234. Only if a document prints one." },
     payoutFrequency: { type: Type.STRING, description: "One of: monthly, quarterly, half-yearly, yearly, on-maturity." },
     dayCountBasis: { type: Type.STRING, description: "One of: actual-365, actual-actual, 30-360. Use actual-actual when payouts in a leap year are smaller than the equivalent period in other years." },
     interestType: { type: Type.STRING, description: "One of: simple, compound, cumulative." },
@@ -204,6 +206,10 @@ function sanitise(raw: Record<string, unknown>): ScannedInvestment {
   result.dpId = text(raw.dpId, 40);
   result.clientId = text(raw.clientId, 40);
   result.orderReference = text(raw.orderReference, 80);
+  // The shape is fixed and checkable, so a misread is rejected here rather
+  // than landing in a field the investor is likely to skim past.
+  const ifsc = typeof raw.ifscCode === "string" ? raw.ifscCode.trim().toUpperCase() : "";
+  if (/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) result.ifscCode = ifsc;
   result.investmentDate = isoDate(raw.investmentDate);
   result.amountPaidRupees = positive(raw.amountPaidRupees);
   result.faceValueRupees = positive(raw.faceValueRupees);

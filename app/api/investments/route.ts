@@ -46,6 +46,7 @@ const investmentInput = z.object({
   panLinked: z.boolean().default(false),
   declarationApplicable: z.boolean().default(false),
   bankName: z.string().trim().max(100).optional(),
+  ifscCode: z.string().trim().toUpperCase().regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, "Enter a valid IFSC code").optional().or(z.literal("")),
   accountNumber: z.string().trim().regex(/^\d{9,18}$/, "Enter the full account number").optional().or(z.literal("")),
   /**
    * The issuer's own repayment schedule, when the paperwork supplied one. It
@@ -65,6 +66,7 @@ const investmentInput = z.object({
   clientId: z.string().trim().max(40).optional(),
   orderReference: z.string().trim().max(80).optional(),
   advisorName: z.string().trim().max(100).optional(),
+  advisorMobile: z.string().trim().regex(/^[6-9]\d{9}$/, "Enter a 10-digit mobile number").optional().or(z.literal("")),
   notes: z.string().trim().max(1000).optional(),
 }).superRefine((value, context) => {
   if (value.maturityDate <= value.investmentDate) {
@@ -245,6 +247,7 @@ export async function POST(request: Request) {
         panLinked: input.panLinked,
         declarationApplicable: input.declarationApplicable,
         bankName: input.bankName ?? null,
+        ifscCode: input.ifscCode || null,
         accountNumber: input.accountNumber || null,
         paymentMode: input.paymentMode ?? null,
         nominee: input.nominee ?? null,
@@ -253,6 +256,7 @@ export async function POST(request: Request) {
         clientId: input.clientId ?? null,
         orderReference: input.orderReference ?? null,
         advisorName: input.advisorName ?? null,
+        advisorMobile: input.advisorMobile || null,
         notes: input.notes ?? null,
         status: "active",
         financialYear: calculateFinancialYear(input.investmentDate),

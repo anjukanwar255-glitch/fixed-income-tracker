@@ -276,6 +276,7 @@ type StoredInvestment = {
   panLinked: boolean;
   declarationApplicable: boolean;
   bankName: string | null;
+  ifscCode?: string | null;
   accountNumber?: string | null;
   paymentMode: string | null;
   nominee: string | null;
@@ -284,6 +285,7 @@ type StoredInvestment = {
   clientId?: string | null;
   orderReference?: string | null;
   advisorName: string | null;
+  advisorMobile?: string | null;
   notes: string | null;
   status: PortfolioInvestment["status"];
   schedule: Array<{
@@ -335,6 +337,7 @@ function fromStoredInvestment(value: StoredInvestment): PortfolioInvestment {
     panLinked: value.panLinked,
     declarationApplicable: value.declarationApplicable,
     bankName: value.bankName ?? undefined,
+    ifscCode: value.ifscCode ?? undefined,
     accountNumber: value.accountNumber ?? undefined,
     paymentMode: value.paymentMode ?? undefined,
     nominee: value.nominee ?? undefined,
@@ -343,6 +346,7 @@ function fromStoredInvestment(value: StoredInvestment): PortfolioInvestment {
     clientId: value.clientId ?? undefined,
     orderReference: value.orderReference ?? undefined,
     advisorName: value.advisorName ?? undefined,
+    advisorMobile: value.advisorMobile ?? undefined,
     notes: value.notes ?? undefined,
     status: value.status,
     schedule: value.schedule.map((payout) => ({

@@ -97,6 +97,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [declarationApplicable, setDeclarationApplicable] = useState(initialInvestment?.declarationApplicable ?? false);
   const [bankOption, setBankOption] = useState(() => initialInvestment?.bankName ? (knownBanks.has(initialInvestment.bankName) ? initialInvestment.bankName : MANUAL_BANK) : "");
   const [manualBankName, setManualBankName] = useState(() => initialInvestment?.bankName && !knownBanks.has(initialInvestment.bankName) ? initialInvestment.bankName : "");
+  const [ifsc, setIfsc] = useState(initialInvestment?.ifscCode ?? "");
   const [accountNumber, setAccountNumber] = useState(initialInvestment?.accountNumber ?? "");
   const [paymentMode, setPaymentMode] = useState(initialInvestment?.paymentMode ?? "bank-transfer");
   const [nominee, setNominee] = useState(initialInvestment?.nominee ?? "");
@@ -105,6 +106,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [clientId, setClientId] = useState(initialInvestment?.clientId ?? "");
   const [orderReference, setOrderReference] = useState(initialInvestment?.orderReference ?? "");
   const [advisor, setAdvisor] = useState(initialInvestment?.advisorName ?? "");
+  const [advisorMobile, setAdvisorMobile] = useState(initialInvestment?.advisorMobile ?? "");
   const [notes, setNotes] = useState(initialInvestment?.notes ?? "");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   /**
@@ -173,6 +175,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
       applyText(found.dpId, setDpId);
       applyText(found.clientId, setClientId);
       applyText(found.orderReference, setOrderReference);
+      applyText(found.ifscCode, setIfsc);
       applyText(found.investmentDate, setInvestmentDate);
       applyNumber(found.amountPaidRupees, setAmount);
       applyNumber(found.faceValueRupees, setFaceValue);
@@ -313,6 +316,16 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
       toast.error("Enter the account the payouts are credited to");
       return;
     }
+    if (advisorMobile && !/^[6-9]\d{9}$/.test(advisorMobile)) {
+      setStep(5);
+      toast.error("Enter a 10-digit advisor mobile number");
+      return;
+    }
+    if (ifsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
+      setStep(5);
+      toast.error("Enter a valid IFSC code, e.g. HDFC0001234");
+      return;
+    }
     if (accountNumber && !/^\d{9,18}$/.test(accountNumber)) {
       setStep(5);
       toast.error("Enter a valid account number (9 to 18 digits)");
@@ -342,7 +355,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     };
     setSaving(true);
     try {
-      const result = await syncInvestment(investment, { bankName: resolvedBankName, accountNumber, paymentMode, nominee, broker, dpId, clientId, orderReference, advisor, notes }, scannedSchedule, { panLinked, declarationApplicable }, selectedFile);
+      const result = await syncInvestment(investment, { bankName: resolvedBankName, ifscCode: ifsc, accountNumber, paymentMode, nominee, broker, dpId, clientId, orderReference, advisor, advisorMobile, notes }, scannedSchedule, { panLinked, declarationApplicable }, selectedFile);
       if (result.warning) toast.warning(result.warning);
       await onSave(result.investmentId);
       onOpenChange(false);
@@ -360,8 +373,8 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     setInvestmentDate(new Date().toISOString().slice(0, 10)); setAmount(""); setRate("");
     setMaturityDate(""); setMaturityAmount(""); setInterestType("simple"); setCompoundingFrequency("quarterly"); setDayCountBasis("actual-365"); setFrequency("quarterly");
     setFirstPayoutDate(""); setTdsApplicable(false); setTdsRate(""); setPanLinked(false);
-    setDeclarationApplicable(false); setBankOption(""); setManualBankName(""); setAccountNumber(""); setPaymentMode("bank-transfer");
-    setNominee(""); setBroker(""); setAdvisor(""); setNotes(""); setSelectedFile(null);
+    setDeclarationApplicable(false); setBankOption(""); setManualBankName(""); setIfsc(""); setAccountNumber(""); setPaymentMode("bank-transfer");
+    setNominee(""); setBroker(""); setAdvisor(""); setAdvisorMobile(""); setNotes(""); setSelectedFile(null);
     setFaceValue(""); setInterestStartDate(""); setDpId(""); setClientId(""); setOrderReference("");
     setScannedFiles([]); setDealSheetFile(null); setScheduleFile(null); setScannedSchedule([]);
   };
@@ -495,7 +508,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
 
           {step === 5 && (
             <div className="form-section">
-              <FormHeading title="Account & references" description="Only the last four account digits are displayed or stored here." />
+              <FormHeading title="Account & references" description="Account and demat numbers are stored in full for reconciliation, and stay masked on screen." />
               <div className="field-grid">
                 <div className="form-field">
                   <Label>Bank name</Label>
@@ -514,7 +527,12 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                     </SelectContent>
                   </Select>
                 </div>
-                {bankOption === MANUAL_BANK && <Field label="Enter bank name" value={manualBankName} setValue={setManualBankName} placeholder="Type the receiving bank" maxLength={100} autoFocus />}
+                {bankOption === MANUAL_BANK && (
+                  <div className="field-span-2">
+                    <Field label="Enter bank name" value={manualBankName} setValue={setManualBankName} placeholder="Type the receiving bank" maxLength={100} autoFocus />
+                  </div>
+                )}
+                <Field label="IFSC code" value={ifsc} setValue={(value) => setIfsc(value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11))} placeholder="e.g. HDFC0001234" autoCapitalize="characters" spellCheck={false} />
                 <MaskedField label="Receiving account number" value={accountNumber} setValue={(value) => setAccountNumber(value.replace(/\D/g, "").slice(0, 18))} inputMode="numeric" placeholder="Account the payouts are credited to" />
                 <div className="form-field"><Label>Payment mode</Label><Select value={paymentMode} onValueChange={setPaymentMode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="bank-transfer">Bank transfer</SelectItem><SelectItem value="cheque">Cheque</SelectItem><SelectItem value="broker-wallet">Broker wallet</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
                 <Field label="Nominee" value={nominee} setValue={setNominee} placeholder="Optional" />
@@ -523,6 +541,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                 <MaskedField label="Demat client ID" value={clientId} setValue={setClientId} placeholder="Optional" maxLength={40} />
                 <Field label="Order / settlement reference" value={orderReference} setValue={setOrderReference} placeholder="Optional" maxLength={80} />
                 <Field label="Advisor name" value={advisor} setValue={setAdvisor} placeholder="Optional" />
+                <Field label="Advisor mobile" value={advisorMobile} setValue={(value) => setAdvisorMobile(value.replace(/\D/g, "").slice(0, 10))} inputMode="tel" placeholder="Optional · 10 digits" />
               </div>
               <div className="form-field"><Label htmlFor="investment-notes">Notes</Label><Textarea id="investment-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Any helpful reference or instruction" /></div>
               <div className="privacy-note"><LockKeyhole aria-hidden="true" /> Account and demat numbers are stored for reconciliation and stay masked. Do not repeat them in notes.</div>
@@ -686,6 +705,7 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
         panLinked: flags.panLinked,
         declarationApplicable: flags.declarationApplicable,
         bankName: extra.bankName,
+        ifscCode: extra.ifscCode,
         accountNumber: extra.accountNumber,
         // Sent only when the documents supplied one; otherwise the server
         // projects the schedule from the rate as before.
@@ -697,6 +717,7 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
         clientId: extra.clientId,
         orderReference: extra.orderReference,
         advisorName: extra.advisor,
+        advisorMobile: extra.advisorMobile,
         notes: extra.notes,
       }),
     });
