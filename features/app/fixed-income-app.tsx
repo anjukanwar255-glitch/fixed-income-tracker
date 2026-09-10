@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell, CalendarClock, CirclePlus, Home, Landmark, Menu, ReceiptIndianRupee, UserRound, WalletCards } from "lucide-react";
+import { Bell, CalendarClock, CirclePlus, CreditCard, Home, Landmark, Menu, MessageSquare, ReceiptIndianRupee, UserRound, WalletCards } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
@@ -15,20 +15,30 @@ import { FinancialYearSelect, financialYearsFor } from "@/features/app/financial
 import { AddInvestmentSheet } from "@/features/investments/add-investment-sheet";
 import { InvestmentDetailScreen } from "@/features/investments/investment-detail-screen";
 import { InvestmentListScreen } from "@/features/investments/investment-list-screen";
-import { PayoutsScreen, ProfileScreen, TdsScreen } from "@/features/app/secondary-screens";
+import { PayoutsScreen, ProfileScreen, SubscriptionScreen, TdsScreen } from "@/features/app/secondary-screens";
+import { FeedbackScreen } from "@/features/app/feedback-screen";
 import { useFirebaseAuth } from "@/hooks/use-firebase-auth";
 import { apiFetch } from "@/lib/firebase-client";
 import type { Entitlement, PlanCode } from "@/lib/billing";
 
-type Screen = "home" | "investments" | "payouts" | "tds" | "profile";
+type Screen = "home" | "investments" | "payouts" | "tds" | "subscription" | "feedback" | "profile";
 
 const navItems: { value: Screen; label: string; icon: typeof Home }[] = [
   { value: "home", label: "Home", icon: Home },
   { value: "investments", label: "Investments", icon: WalletCards },
   { value: "payouts", label: "Payouts", icon: CalendarClock },
   { value: "tds", label: "TDS", icon: ReceiptIndianRupee },
+  { value: "subscription", label: "Subscription", icon: CreditCard },
+  { value: "feedback", label: "Write to us", icon: MessageSquare },
   { value: "profile", label: "Profile", icon: UserRound },
 ];
+
+/**
+ * The phone's bottom bar holds five at most before the labels start colliding.
+ * Subscription and feedback are reached from the sidebar on a wide screen and
+ * from Profile on a narrow one, rather than being crushed in beside the rest.
+ */
+const mobileNavItems = navItems.filter((item) => item.value !== "subscription" && item.value !== "feedback");
 
 export function FixedIncomeApp() {
   const auth = useFirebaseAuth();
@@ -187,13 +197,13 @@ export function FixedIncomeApp() {
 
   // Profile has nothing that varies by year, and an investment's own screen
   // shows its whole life rather than a slice of it.
-  const showFinancialYear = !selected && screen !== "profile";
+  const showFinancialYear = !selected && !["profile", "subscription", "feedback"].includes(screen);
   const financialYears = financialYearsFor(investments, new Date().toISOString().slice(0, 10));
 
   return (
     <div className="app-shell">
       <aside className="desktop-sidebar">
-        <div className="sidebar-brand"><span className="brand-mark"><Landmark /></span><span><b>Portfolio</b><small>Fixed income</small></span></div>
+        <div className="sidebar-brand"><span className="brand-mark"><Landmark /></span><span><b>Portfolio</b><small>Investments &amp; cover</small></span></div>
         <nav aria-label="Primary navigation">
           {navItems.map(({ value, label, icon: Icon }) => (
             <button data-active={!selected && screen === value} key={value} onClick={() => navigate(value)}><Icon /><span>{label}</span></button>
@@ -223,16 +233,20 @@ export function FixedIncomeApp() {
             <InvestmentListScreen investments={investments} onOpenInvestment={openInvestment} onAddInvestment={openAddInvestment} financialYear={financialYear} />
           ) : screen === "payouts" ? (
             <PayoutsScreen investments={investments} onOpenInvestment={openInvestment} financialYear={financialYear} />
+          ) : screen === "subscription" ? (
+            <SubscriptionScreen entitlement={billing.entitlement} onBillingChanged={loadBilling} />
+          ) : screen === "feedback" ? (
+            <FeedbackScreen appContext={`screen:${screen} · fy:${financialYear}`} />
           ) : screen === "tds" ? (
             <TdsScreen investments={investments} onOpenInvestment={openInvestment} financialYear={financialYear} />
           ) : (
-            <ProfileScreen profile={ownAccount.profile} displayName={displayName} phoneNumber={auth.user?.phoneNumber ?? null} entitlement={billing.entitlement} onSignOut={auth.signOut} onProfileSaved={loadAccount} onBillingChanged={loadBilling} />
+            <ProfileScreen profile={ownAccount.profile} displayName={displayName} phoneNumber={auth.user?.phoneNumber ?? null} onSignOut={auth.signOut} onProfileSaved={loadAccount} onNavigate={navigate} />
           )}
         </main>
       </div>
 
       <nav className="mobile-bottom-nav" aria-label="Primary navigation">
-        {navItems.map(({ value, label, icon: Icon }) => (
+        {mobileNavItems.map(({ value, label, icon: Icon }) => (
           <button data-active={!selected && screen === value} key={value} onClick={() => navigate(value)}><Icon /><small>{label}</small></button>
         ))}
       </nav>

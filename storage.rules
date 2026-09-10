@@ -19,6 +19,16 @@ service firebase.storage {
       allow delete: if isOwner(userId);
     }
 
+    // Evidence attached to a report. Write-once and owner-only, like a
+    // document: nothing else needs to read it, and nothing should rewrite it
+    // after the fact.
+    match /users/{userId}/feedback/{feedbackId}/{fileId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && resource == null && isAllowedDocument();
+      allow update: if false;
+      allow delete: if isOwner(userId);
+    }
+
     match /users/{userId}/backups/{backupFile} {
       allow read: if isOwner(userId);
       allow create, update: if isOwner(userId)

@@ -16,6 +16,7 @@ import type {
   AdminSettingDoc,
   BackupRunDoc,
   ContributionDoc,
+  FeedbackDoc,
   BillingEventDoc,
   DocumentDoc,
   FinancialYearDoc,
@@ -125,6 +126,10 @@ export function payoutTransactions(uid: string) {
 
 export function tdsRecords(uid: string) {
   return userDoc(uid).collection("tdsRecords") as CollectionReference<TdsRecordDoc>;
+}
+
+export function feedback(uid: string) {
+  return userDoc(uid).collection("feedback") as CollectionReference<FeedbackDoc>;
 }
 
 export function contributions(uid: string) {

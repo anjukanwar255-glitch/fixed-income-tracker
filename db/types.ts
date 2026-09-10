@@ -157,6 +157,25 @@ export interface PayoutScheduleDoc extends Timestamps {
   revision: number;
 }
 
+/**
+ * Something a user wrote to us — an issue hit, or an improvement wanted.
+ *
+ * Kept under the user's own tree like everything else, so it is covered by the
+ * same rules, the same backup and the same deletion. Attachments are the
+ * evidence: a screenshot of what went wrong says more than a paragraph
+ * describing it.
+ */
+export interface FeedbackDoc extends Timestamps {
+  id: string;
+  category: string;
+  subject: string;
+  message: string;
+  status: string;
+  /** Where the app was when it was written, so a report can be placed. */
+  appContext?: string | null;
+  attachments?: { objectKey: string; fileName: string; mimeType: string; sizeBytes: number }[];
+}
+
 export interface PayoutTransactionDoc extends Timestamps {
   id: string;
   payoutScheduleId: string;

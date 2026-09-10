@@ -115,14 +115,49 @@ type AccountProfile = {
   mobileE164: string | null;
 };
 
-export function ProfileScreen({ profile, displayName, phoneNumber, entitlement, onSignOut, onProfileSaved, onBillingChanged }: {
+export function SubscriptionScreen({ entitlement, onBillingChanged }: { entitlement: Entitlement; onBillingChanged: () => Promise<void> }) {
+  const cancelRenewal = async () => {
+    if (!window.confirm(`Cancel automatic renewal? Your access will continue until ${entitlement.currentPeriodEnd ? formatDate(entitlement.currentPeriodEnd) : "the current billing period ends"}.`)) return;
+    const response = await apiFetch("/api/billing/subscription", { method: "DELETE" });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) { toast.error(result.error ?? "Subscription renewal could not be cancelled"); return; }
+    await onBillingChanged();
+    toast.success("Renewal cancelled. Access continues to the end of the period.");
+  };
+
+  const planName = entitlement.planCode ? entitlement.planCode.replace("half-yearly", "6-month") : null;
+
+  return (
+    <div className="screen secondary-screen">
+      <header className="screen-header"><div><p className="screen-kicker">Billing</p><h1>Subscription</h1></div></header>
+      <div className="tds-metric-grid">
+        <div><span>Status</span><strong>{entitlement.state === "trial" ? "Free trial" : entitlement.subscriptionStatus ?? "Inactive"}</strong><small>{planName ? `${planName} plan` : "No active plan"}</small></div>
+        <div><span>Access through</span><strong>{entitlement.currentPeriodEnd ? formatDate(entitlement.currentPeriodEnd) : entitlement.trialEndsAt ? formatDate(entitlement.trialEndsAt) : "—"}</strong><small>{entitlement.state === "trial" ? `${entitlement.daysRemaining} days remaining` : "End of current period"}</small></div>
+        <div><span>Renewal</span><strong>{entitlement.cancelAtPeriodEnd ? "Cancelled" : entitlement.state === "subscribed" ? "Automatic" : "Not started"}</strong><small>{entitlement.cancelAtPeriodEnd ? "Access continues to the period end" : "Nothing to do"}</small></div>
+      </div>
+      <section className="settings-card">
+        <div className="section-heading"><div><h2>Your plan</h2><p>Everything the app records stays yours, subscribed or not</p></div><ReceiptIndianRupee /></div>
+        <div className="security-list">
+          <span>Records <b>Kept for as long as the account exists</b></span>
+          <span>Export <b>Available from Profile at any time</b></span>
+          <span>Payment <b>Handled by the payment provider, never stored here</b></span>
+        </div>
+        {entitlement.state === "subscribed" && !entitlement.cancelAtPeriodEnd && (
+          <div className="settings-actions"><Button variant="outline" onClick={() => void cancelRenewal()}>Cancel renewal</Button></div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+export function ProfileScreen({ profile, displayName, phoneNumber, onSignOut, onProfileSaved, onNavigate }: {
   profile: AccountProfile | null;
   displayName: string;
   phoneNumber: string | null;
-  entitlement: Entitlement;
   onSignOut: () => Promise<void>;
   onProfileSaved: () => Promise<void>;
-  onBillingChanged: () => Promise<void>;
+  /** Subscription and feedback have no room in the phone's bottom bar. */
+  onNavigate: (screen: "subscription" | "feedback") => void;
 }) {
   const [revealed, setRevealed] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -171,15 +206,6 @@ export function ProfileScreen({ profile, displayName, phoneNumber, entitlement, 
     await onSignOut();
   };
 
-  const cancelRenewal = async () => {
-    if (!window.confirm(`Cancel automatic renewal? Your access will continue until ${entitlement.currentPeriodEnd ? formatDate(entitlement.currentPeriodEnd) : "the current billing period ends"}.`)) return;
-    const response = await apiFetch("/api/billing/subscription", { method: "DELETE" });
-    const result = await response.json() as { error?: string };
-    if (!response.ok) { toast.error(result.error ?? "Subscription renewal could not be cancelled"); return; }
-    toast.success("Automatic renewal cancelled. Access continues through the paid period.");
-    await onBillingChanged();
-  };
-
   return (
     <div className="screen secondary-screen profile-screen">
       <header className="screen-header">
@@ -216,9 +242,15 @@ export function ProfileScreen({ profile, displayName, phoneNumber, entitlement, 
         onOpenChange={setEditing}
         onSaved={async () => { setEditing(false); await onProfileSaved(); }}
       />
+      <section className="settings-card mobile-only-card">
+        <div className="section-heading"><div><h2>More</h2><p>Also in the sidebar on a larger screen</p></div><ReceiptIndianRupee /></div>
+        <div className="settings-actions">
+          <Button variant="outline" onClick={() => onNavigate("subscription")}>Subscription</Button>
+          <Button variant="outline" onClick={() => onNavigate("feedback")}>Write to us</Button>
+        </div>
+      </section>
       <section className="settings-card"><div className="section-heading"><div><h2>Data protection</h2><p>Your financial records use account-level ownership checks</p></div><ShieldCheck /></div><div className="security-list"><span>Encrypted connection <b>Active</b></span><span>Cloud database <b>Active</b></span><span>Document access <b>Private</b></span></div></section>
       <section className="settings-card app-install-card"><div className="section-heading"><div><h2>Use as an app</h2><p>Install it on your phone for a standalone, home-screen experience</p></div><Download /></div><InstallAppButton /></section>
-      <section className="settings-card"><div className="section-heading"><div><h2>Subscription</h2><p>{entitlement.state === "trial" ? `${entitlement.daysRemaining} free-trial days remaining` : entitlement.planCode ? `${entitlement.planCode.replace("half-yearly", "6-month")} plan` : "No active plan"}</p></div><ReceiptIndianRupee /></div><div className="security-list"><span>Status <b>{entitlement.state === "trial" ? "Free trial" : entitlement.subscriptionStatus ?? "Inactive"}</b></span><span>Access through <b>{entitlement.currentPeriodEnd ? formatDate(entitlement.currentPeriodEnd) : entitlement.trialEndsAt ? formatDate(entitlement.trialEndsAt) : "—"}</b></span><span>Renewal <b>{entitlement.cancelAtPeriodEnd ? "Cancelled" : entitlement.state === "subscribed" ? "Automatic" : "Not started"}</b></span></div>{entitlement.state === "subscribed" && !entitlement.cancelAtPeriodEnd && <div className="settings-actions"><Button variant="outline" onClick={() => void cancelRenewal()}>Cancel renewal</Button></div>}</section>
       <section className="settings-card"><div className="section-heading"><div><h2>Backup &amp; recovery</h2><p>Encrypted portfolio snapshots are stored separately in Firebase Storage</p></div><DatabaseBackup /></div><div className="security-list"><span>Firebase backup <b>{backupStatus?.configured ? "Configured" : "Setup required"}</b></span><span>Latest snapshot <b>{backupStatus?.latest ? formatDateTime(backupStatus.latest.createdAt) : "Not created"}</b></span></div><div className="settings-actions"><Button variant="outline" disabled={backupBusy || !backupStatus?.configured} onClick={() => void runBackup()}><DatabaseBackup /> Back up now</Button><Button variant="outline" disabled={backupBusy || !backupStatus?.latest} onClick={() => void runBackup(true)}><ShieldCheck /> Test recovery</Button></div></section>
       <section className="settings-card"><div className="section-heading"><div><h2>Your data</h2><p>Download a portable copy or permanently delete the account</p></div><Download /></div><div className="settings-actions"><Button variant="outline" onClick={() => void exportAccount("csv")}><Download /> Portfolio CSV</Button><Button variant="outline" onClick={() => void exportAccount("json")}><Download /> Full JSON</Button><Button variant="destructive" onClick={() => void deleteAccount()}><Trash2 /> Delete account</Button></div><div className="legal-links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/support">Support</a></div></section>
       <Button variant="outline" disabled={signingOut} onClick={() => { setSigningOut(true); void onSignOut().finally(() => setSigningOut(false)); }}>
