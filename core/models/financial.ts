@@ -123,7 +123,8 @@ export interface PortfolioInvestment extends InvestmentDraft {
   panLinked?: boolean;
   declarationApplicable?: boolean;
   bankName?: string;
-  accountLast4?: string;
+  /** Full receiving account number. Masked wherever it is shown. */
+  accountNumber?: string;
   paymentMode?: string;
   nominee?: string;
   brokerPlatform?: string;

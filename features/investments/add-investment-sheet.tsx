@@ -98,7 +98,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [declarationApplicable, setDeclarationApplicable] = useState(initialInvestment?.declarationApplicable ?? false);
   const [bankOption, setBankOption] = useState(() => initialInvestment?.bankName ? (knownBanks.has(initialInvestment.bankName) ? initialInvestment.bankName : MANUAL_BANK) : "");
   const [manualBankName, setManualBankName] = useState(() => initialInvestment?.bankName && !knownBanks.has(initialInvestment.bankName) ? initialInvestment.bankName : "");
-  const [accountLast4, setAccountLast4] = useState(initialInvestment?.accountLast4 ?? "");
+  const [accountNumber, setAccountNumber] = useState(initialInvestment?.accountNumber ?? "");
   const [paymentMode, setPaymentMode] = useState(initialInvestment?.paymentMode ?? "bank-transfer");
   const [nominee, setNominee] = useState(initialInvestment?.nominee ?? "");
   const [broker, setBroker] = useState(initialInvestment?.brokerPlatform ?? "");
@@ -270,9 +270,14 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   };
 
   const save = async () => {
-    if (accountLast4 && !/^\d{4}$/.test(accountLast4)) {
+    if (!initialInvestment && !accountNumber) {
       setStep(5);
-      toast.error("Enter only the last 4 account digits");
+      toast.error("Enter the account the payouts are credited to");
+      return;
+    }
+    if (accountNumber && !/^\d{9,18}$/.test(accountNumber)) {
+      setStep(5);
+      toast.error("Enter a valid account number (9 to 18 digits)");
       return;
     }
     if (selectedFile && (!allowedDocumentTypes.has(selectedFile.type) || selectedFile.size <= 0 || selectedFile.size > MAX_DOCUMENT_BYTES)) {
@@ -299,7 +304,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     };
     setSaving(true);
     try {
-      const result = await syncInvestment(investment, { bankName: resolvedBankName, accountLast4, paymentMode, nominee, broker, dpId, clientId, orderReference, advisor, notes }, { panLinked, declarationApplicable }, selectedFile);
+      const result = await syncInvestment(investment, { bankName: resolvedBankName, accountNumber, paymentMode, nominee, broker, dpId, clientId, orderReference, advisor, notes }, { panLinked, declarationApplicable }, selectedFile);
       if (result.warning) toast.warning(result.warning);
       await onSave(result.investmentId);
       onOpenChange(false);
@@ -317,8 +322,10 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     setInvestmentDate(new Date().toISOString().slice(0, 10)); setAmount(""); setRate("");
     setMaturityDate(""); setMaturityAmount(""); setInterestType("simple"); setCompoundingFrequency("quarterly"); setDayCountBasis("actual-365"); setFrequency("quarterly");
     setFirstPayoutDate(""); setTdsApplicable(false); setTdsRate(""); setPanLinked(false);
-    setDeclarationApplicable(false); setBankOption(""); setManualBankName(""); setAccountLast4(""); setPaymentMode("bank-transfer");
+    setDeclarationApplicable(false); setBankOption(""); setManualBankName(""); setAccountNumber(""); setPaymentMode("bank-transfer");
     setNominee(""); setBroker(""); setAdvisor(""); setNotes(""); setSelectedFile(null);
+    setFaceValue(""); setInterestStartDate(""); setDpId(""); setClientId(""); setOrderReference("");
+    setScannedFiles([]); setDealSheetFile(null); setScheduleFile(null);
   };
 
   return (
@@ -470,7 +477,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                   </Select>
                 </div>
                 {bankOption === MANUAL_BANK && <Field label="Enter bank name" value={manualBankName} setValue={setManualBankName} placeholder="Type the receiving bank" maxLength={100} autoFocus />}
-                <MaskedField label="Account last 4 digits" value={accountLast4} setValue={(value) => setAccountLast4(value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" placeholder="1234" />
+                <MaskedField label="Receiving account number" value={accountNumber} setValue={(value) => setAccountNumber(value.replace(/\D/g, "").slice(0, 18))} inputMode="numeric" placeholder="Account the payouts are credited to" />
                 <div className="form-field"><Label>Payment mode</Label><Select value={paymentMode} onValueChange={setPaymentMode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="bank-transfer">Bank transfer</SelectItem><SelectItem value="cheque">Cheque</SelectItem><SelectItem value="broker-wallet">Broker wallet</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
                 <Field label="Nominee" value={nominee} setValue={setNominee} placeholder="Optional" />
                 <Field label="Broker / platform" value={broker} setValue={setBroker} placeholder="Who the purchase went through" maxLength={100} />
@@ -480,7 +487,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                 <Field label="Advisor name" value={advisor} setValue={setAdvisor} placeholder="Optional" />
               </div>
               <div className="form-field"><Label htmlFor="investment-notes">Notes</Label><Textarea id="investment-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Any helpful reference or instruction" /></div>
-              <div className="privacy-note"><LockKeyhole aria-hidden="true" /> Full bank details are not required and should not be entered in notes.</div>
+              <div className="privacy-note"><LockKeyhole aria-hidden="true" /> Account and demat numbers are stored for reconciliation and stay masked. Do not repeat them in notes.</div>
             </div>
           )}
 
@@ -660,7 +667,7 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
         panLinked: flags.panLinked,
         declarationApplicable: flags.declarationApplicable,
         bankName: extra.bankName,
-        accountLast4: extra.accountLast4,
+        accountNumber: extra.accountNumber,
         paymentMode: extra.paymentMode,
         nominee: extra.nominee,
         brokerPlatform: extra.broker,

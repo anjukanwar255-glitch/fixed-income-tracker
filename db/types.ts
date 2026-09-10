@@ -79,7 +79,8 @@ export interface InvestmentDoc extends Timestamps {
   panLinked: boolean;
   declarationApplicable: boolean;
   bankName?: string | null;
-  accountLast4?: string | null;
+  /** Full receiving account number. Masked wherever it is shown. */
+  accountNumber?: string | null;
   paymentMode?: string | null;
   nominee?: string | null;
   brokerPlatform?: string | null;

@@ -276,7 +276,7 @@ type StoredInvestment = {
   panLinked: boolean;
   declarationApplicable: boolean;
   bankName: string | null;
-  accountLast4: string | null;
+  accountNumber?: string | null;
   paymentMode: string | null;
   nominee: string | null;
   brokerPlatform: string | null;
@@ -334,7 +334,7 @@ function fromStoredInvestment(value: StoredInvestment): PortfolioInvestment {
     panLinked: value.panLinked,
     declarationApplicable: value.declarationApplicable,
     bankName: value.bankName ?? undefined,
-    accountLast4: value.accountLast4 ?? undefined,
+    accountNumber: value.accountNumber ?? undefined,
     paymentMode: value.paymentMode ?? undefined,
     nominee: value.nominee ?? undefined,
     brokerPlatform: value.brokerPlatform ?? undefined,
