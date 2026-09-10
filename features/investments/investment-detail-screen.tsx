@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { MaskedField } from "@/components/masked-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -47,7 +48,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
   const [receivedAmount, setReceivedAmount] = useState("");
   const [receivedDate, setReceivedDate] = useState(todayIso());
   const [actualTds, setActualTds] = useState("");
-  const [accountLast4, setAccountLast4] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
   const [payoutRemarks, setPayoutRemarks] = useState("");
@@ -85,14 +86,14 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
     setPayoutDialog({ payout, outcome });
     setReceivedAmount(outcome === "received" ? paiseToInput(payout.expectedNetPaise) : "");
     setActualTds(outcome === "received" ? paiseToInput(payout.expectedTdsPaise) : "");
-    setReceivedDate(todayIso()); setAccountLast4(""); setPaymentReference(""); setFollowUpDate(""); setPayoutRemarks("");
+    setReceivedDate(todayIso()); setAccountNumber(investment.accountNumber ?? ""); setPaymentReference(""); setFollowUpDate(""); setPayoutRemarks("");
   };
 
   const savePayout = async () => {
     if (!payoutDialog) return;
     if (payoutDialog.outcome === "received" && parseRupeesToPaise(receivedAmount) < 0n) return;
-    if (accountLast4 && !/^\d{4}$/.test(accountLast4)) {
-      toast.error("Enter only the last 4 account digits"); return;
+    if (accountNumber && !/^\d{9,18}$/.test(accountNumber)) {
+      toast.error("Enter a valid account number (9 to 18 digits)"); return;
     }
     setSavingPayout(true);
     try {
@@ -105,7 +106,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
           receivedAmountPaise: payoutDialog.outcome === "received" ? Number(parseRupeesToPaise(receivedAmount)) : undefined,
           receivedDate: payoutDialog.outcome === "received" ? receivedDate : undefined,
           actualTdsPaise: payoutDialog.outcome === "received" ? Number(parseRupeesToPaise(actualTds)) : undefined,
-          bankAccountLast4: accountLast4,
+          bankAccountNumber: accountNumber,
           paymentReference,
           followUpDate: payoutDialog.outcome === "not-received" && followUpDate ? followUpDate : undefined,
           remarks: payoutRemarks,
@@ -310,7 +311,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
             <FormField label="Amount received" id="received-amount"><Input id="received-amount" inputMode="decimal" value={receivedAmount} onChange={(event) => setReceivedAmount(event.target.value)} /></FormField>
             <FormField label="Received date" id="received-date"><Input id="received-date" type="date" value={receivedDate} onChange={(event) => setReceivedDate(event.target.value)} /></FormField>
             <FormField label="Actual TDS deducted" id="actual-tds"><Input id="actual-tds" inputMode="decimal" value={actualTds} onChange={(event) => setActualTds(event.target.value)} /></FormField>
-            <FormField label="Bank account last 4 digits" id="bank-last4"><Input id="bank-last4" inputMode="numeric" maxLength={4} value={accountLast4} onChange={(event) => setAccountLast4(event.target.value.replace(/\D/g, ""))} /></FormField>
+            <MaskedField label="Credited to account" value={accountNumber} setValue={(value) => setAccountNumber(value.replace(/\D/g, "").slice(0, 18))} inputMode="numeric" placeholder="Account the money landed in" />
             <FormField label="Transaction reference (optional)" id="transaction-ref"><Input id="transaction-ref" value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} /></FormField>
           </> : <FormField label="Follow-up date (optional)" id="follow-up-date"><Input id="follow-up-date" type="date" value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} /></FormField>}
           <FormField label="Remarks (optional)" id="payout-remarks"><Textarea id="payout-remarks" value={payoutRemarks} onChange={(event) => setPayoutRemarks(event.target.value)} /></FormField>

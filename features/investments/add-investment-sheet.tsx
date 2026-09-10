@@ -8,8 +8,6 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Eye,
-  EyeOff,
   FileText,
   Landmark,
   Loader2,
@@ -20,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { MaskedField } from "@/components/masked-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -603,27 +602,6 @@ function ScanSlot({ label, hint, file, disabled, onSelect }: {
       <b>{label}</b>
       <small>{file ? file.name : hint}</small>
     </label>
-  );
-}
-
-function MaskedField({ label, value, setValue, ...props }: { label: string; value: string; setValue: (value: string) => void } & Omit<React.ComponentProps<typeof Input>, "value" | "onChange" | "type">) {
-  const [revealed, setRevealed] = useState(false);
-  const id = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-  return (
-    <div className="form-field">
-      <Label htmlFor={id}>{label}</Label>
-      <div className="masked-field">
-        <Input id={id} type={revealed ? "text" : "password"} value={value} onChange={(event) => setValue(event.target.value)} {...props} />
-        <button
-          type="button"
-          onClick={() => setRevealed((shown) => !shown)}
-          aria-label={revealed ? `Hide ${label}` : `Show ${label}`}
-          aria-pressed={revealed}
-        >
-          {revealed ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-        </button>
-      </div>
-    </div>
   );
 }
 

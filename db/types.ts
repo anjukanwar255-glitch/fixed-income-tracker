@@ -116,6 +116,8 @@ export interface PayoutTransactionDoc extends Timestamps {
   receivedAmountPaise?: number | null;
   receivedDate?: string | null;
   actualTdsPaise?: number | null;
+  /** Full account the credit landed in. Older records hold only the last four digits, under `bankAccountLast4`. */
+  bankAccountNumber?: string | null;
   bankAccountLast4?: string | null;
   paymentReference?: string | null;
   proofObjectKey?: string | null;
