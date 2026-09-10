@@ -115,12 +115,14 @@ export function PlanGrid({ plans, entitlement, busyPlan, onChoose, currentPlan }
               if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onChoose(plan.code); }
             } : undefined}
           >
-            {active
-              ? <span className="pricing-badge">Current plan</span>
-              : saving > 0 ? <span className="pricing-badge">Save {saving}%</span> : null}
+            <div className="pricing-badge-row">
+              {active
+                ? <span className="pricing-badge">Current plan</span>
+                : saving > 0 ? <span className="pricing-badge">Save {saving}%</span> : null}
+            </div>
             <h2>{plan.label}</h2>
             <p className="pricing-amount"><strong>₹{plan.amountPaise / 100}</strong><span>/{planPeriodLabel(plan.code)}</span></p>
-            {perMonth !== null && <p className="pricing-permonth">₹{perMonth.toFixed(2)} a month, billed {planPeriodLabel(plan.code) === "year" ? "yearly" : "every 6 months"}</p>}
+            <p className="pricing-permonth">{perMonth === null ? "Billed every month" : `₹${perMonth.toFixed(2)} per month`}</p>
             <ul><li><Check /> Unlimited investments</li><li><Check /> Encrypted Firebase backups</li><li><Check /> Payout and TDS tracking</li></ul>
             <Button
               className="w-full"
@@ -129,8 +131,9 @@ export function PlanGrid({ plans, entitlement, busyPlan, onChoose, currentPlan }
               // The card already handles the click; without this the button
               // would fire it a second time and open two checkouts.
               onClick={(event) => { event.stopPropagation(); onChoose(plan.code); }}
+              aria-label={active ? `${plan.label} is your current plan` : `Choose the ${plan.label} plan`}
             >
-              {active ? "Active" : busyPlan === plan.code ? "Opening secure checkout…" : `Choose ${plan.label}`}
+              {active ? "Active" : busyPlan === plan.code ? "Opening checkout…" : "Choose"}
             </Button>
           </article>
         );

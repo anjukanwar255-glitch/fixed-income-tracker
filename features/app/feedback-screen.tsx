@@ -83,7 +83,7 @@ export function FeedbackScreen({ appContext }: { appContext: string }) {
     <div className="screen secondary-screen">
       <header className="screen-header"><div><p className="screen-kicker">We read every one</p><h1>Write to us</h1></div></header>
 
-      <section className="settings-card">
+      <section className="settings-card stacked-card">
         <div className="field-grid">
           <div className="form-field">
             <Label>What is this about?</Label>
