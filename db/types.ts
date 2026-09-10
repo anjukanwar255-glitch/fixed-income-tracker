@@ -165,6 +165,27 @@ export interface PayoutScheduleDoc extends Timestamps {
  * evidence: a screenshot of what went wrong says more than a paragraph
  * describing it.
  */
+/**
+ * A holding closed before it matured, in whole or in part.
+ *
+ * Recorded rather than applied silently: a part-closure changes what every
+ * later payout is worth, and the reason has to stay on the record for the
+ * schedule to be explicable afterwards.
+ */
+export interface ClosureDoc extends Timestamps {
+  id: string;
+  investmentId: string;
+  closureDate: string;
+  financialYear: string;
+  /** Units sold, or paise withdrawn — whatever the holding is counted in. */
+  closedPortion: number;
+  heldPortionBefore: number;
+  proceedsPaise?: number | null;
+  accruedInterestPaise: number;
+  fullExit: boolean;
+  remarks?: string | null;
+}
+
 export interface FeedbackDoc extends Timestamps {
   id: string;
   category: string;

@@ -6,6 +6,7 @@ import { Bell, CalendarClock, CirclePlus, CreditCard, Home, Landmark, Menu, Mess
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { calculateFinancialYear } from "@/core/finance/calculations";
+import { hasMatured } from "@/core/finance/closure";
 import type { PortfolioInvestment } from "@/core/models/financial";
 import { AccountSetup } from "@/features/auth/account-setup";
 import { AuthFlow } from "@/features/auth/auth-flow";
@@ -390,7 +391,9 @@ function fromStoredInvestment(value: StoredInvestment): PortfolioInvestment {
     advisorName: value.advisorName ?? undefined,
     advisorMobile: value.advisorMobile ?? undefined,
     notes: value.notes ?? undefined,
-    status: value.status,
+    // Maturity is the date arriving, so it is worked out on read rather than
+    // waiting for someone to record it. A closed holding stays closed.
+    status: hasMatured(value, new Date().toISOString().slice(0, 10)) ? "matured" : value.status,
     schedule: value.schedule.map((payout) => ({
       id: payout.id,
       dueDate: payout.dueDate,

@@ -3,11 +3,11 @@
 import { useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  Archive,
   ArrowLeft,
   CalendarDays,
   CheckCircle2,
   Clock3,
+  DoorOpen,
   Download,
   FileText,
   History,
@@ -33,6 +33,7 @@ import { calculateFinancialYear, calculateInterest, formatMoney, parseRupeesToPa
 import { DECLARATION_FORM_TYPE, declarationPending } from "@/core/tax/declarations";
 import { contributionTotals } from "@/core/finance/contributions";
 import { earnsInterest, holdsUnits, providesCover } from "@/core/data/investment-types";
+import { closurePosition, hasMatured } from "@/core/finance/closure";
 import { apiFetch, downloadDocument, uploadDocumentFile } from "@/lib/firebase-client";
 import type { PayoutProjection, PortfolioInvestment } from "@/core/models/financial";
 
@@ -74,8 +75,75 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
   const [acknowledgement, setAcknowledgement] = useState("");
   const [savingDeclaration, setSavingDeclaration] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [statusBusy, setStatusBusy] = useState(false);
+  const [closureOpen, setClosureOpen] = useState(false);
+  const [closureDate, setClosureDate] = useState(todayIso());
+  const [closurePortion, setClosurePortion] = useState("");
+  const [closureProceeds, setClosureProceeds] = useState("");
+  const [savingClosure, setSavingClosure] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
+
+  const matured = hasMatured(investment, todayIso());
+  /*
+   * A bond is sold in units and a deposit is broken for an amount. Which one a
+   * holding is counted in decides what the closure form should ask for — units
+   * it does not have would make every part-closure all-or-nothing.
+   */
+  const countedInUnits = Boolean(investment.units);
+  const heldPortion = countedInUnits ? investment.units! : Number(investment.principalPaise);
+
+  const openClosure = () => {
+    setClosureDate(todayIso());
+    setClosurePortion(countedInUnits ? String(investment.units) : paiseToInput(investment.principalPaise));
+    setClosureProceeds("");
+    setClosureOpen(true);
+  };
+
+  const saveClosure = async () => {
+    const portion = countedInUnits ? Number(closurePortion) : Number(parseRupeesToPaise(closurePortion));
+    if (!Number.isFinite(portion) || portion <= 0 || portion > heldPortion) {
+      toast.error(countedInUnits ? "Enter how many units are being sold" : "Enter how much is being withdrawn");
+      return;
+    }
+    setSavingClosure(true);
+    try {
+      const response = await apiFetch(`/api/investments/${investment.id}/close`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          closureDate,
+          closedPortion: portion,
+          proceedsPaise: closureProceeds ? Number(parseRupeesToPaise(closureProceeds)) : undefined,
+        }),
+      });
+      const result = await response.json() as { error?: string; fullExit?: boolean; accruedInterestPaise?: number };
+      if (!response.ok) throw new Error(result.error ?? "The closure could not be saved");
+      await onDataChanged();
+      setClosureOpen(false);
+      toast.success(result.fullExit
+        ? "Closed. Remaining payouts have been cancelled."
+        : "Part-closed. Remaining payouts have been reduced to what is still held.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The closure could not be saved");
+    } finally {
+      setSavingClosure(false);
+    }
+  };
+
+  const closurePreview = useMemo(() => {
+    const portion = countedInUnits ? Number(closurePortion) : Number(parseRupeesToPaise(closurePortion));
+    if (!closureOpen || !Number.isFinite(portion) || portion <= 0 || portion > heldPortion) return null;
+    return closurePosition({
+      closureDate,
+      closedPortion: portion,
+      heldPortion,
+      schedule: investment.schedule,
+      interestBasePaise: investment.faceValuePaise ?? investment.principalPaise,
+      principalPaise: investment.principalPaise,
+      annualRateBps: investment.annualRateBps,
+      dayCountBasis: investment.dayCountBasis,
+      interestStartDate: investment.interestStartDate ?? investment.investmentDate,
+    });
+  }, [closureOpen, closurePortion, closureDate, countedInUnits, heldPortion, investment]);
 
   const lent = earnsInterest(investment.type);
   const unitPriced = holdsUnits(investment.type);
@@ -315,26 +383,6 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
     }
   };
 
-  const updateInvestmentStatus = async (action: "mature" | "close" | "archive") => {
-    setStatusBusy(true);
-    try {
-      const response = await apiFetch(`/api/investments/${investment.id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-      const result = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "Investment could not be updated");
-      await onDataChanged();
-      toast.success(action === "archive" ? "Investment archived" : `Investment marked ${action === "mature" ? "matured" : "closed"}`);
-      if (action === "archive") onBack();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Investment could not be updated");
-    } finally {
-      setStatusBusy(false);
-    }
-  };
-
   const deleteDocument = async (documentId: string) => {
     if (!window.confirm("Permanently delete this document? This cannot be undone.")) return;
     const response = await apiFetch(`/api/documents/${documentId}`, { method: "DELETE" });
@@ -356,8 +404,14 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
         <Badge className={investment.status === "active" ? "status-active" : "status-upcoming"}>{labelType(investment.status)}</Badge>
         <div className="detail-actions">
           <Button size="sm" variant="outline" onClick={onEdit}><Pencil /> Edit</Button>
-          {investment.status === "active" && <Button size="sm" variant="outline" disabled={statusBusy} onClick={() => void updateInvestmentStatus("mature")}><CheckCircle2 /> Mark matured</Button>}
-          <Button size="sm" variant="ghost" disabled={statusBusy} onClick={() => void updateInvestmentStatus("archive")}><Archive /> Archive</Button>
+          {/*
+            No "mark matured": maturity is a date arriving, not a decision, and
+            it is worked out from the date itself. Closing early is a decision,
+            and is the only status anyone has to record by hand.
+          */}
+          {investment.status === "active" && !matured && (
+            <Button size="sm" variant="outline" onClick={() => openClosure()}><DoorOpen /> Close early</Button>
+          )}
         </div>
         <div className="detail-key-numbers">
           <div><span>Investment</span><strong>{formatMoney(investment.principalPaise)}</strong></div>
@@ -493,6 +547,49 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
           <FormField label="Remarks (optional)" id="payout-remarks"><Textarea id="payout-remarks" value={payoutRemarks} onChange={(event) => setPayoutRemarks(event.target.value)} /></FormField>
           {payoutDialog?.outcome === "received" && parseRupeesToPaise(receivedAmount) !== payoutDialog.payout.expectedNetPaise && <div className="mismatch-note"><AlertTriangle /> Expected {formatMoney(payoutDialog.payout.expectedNetPaise)}; entered {formatMoney(parseRupeesToPaise(receivedAmount))}.</div>}
           <DialogFooter><Button variant="outline" onClick={() => setPayoutDialog(null)}>Cancel</Button><Button disabled={savingPayout} onClick={() => void savePayout()}>{savingPayout ? "Saving…" : "Save confirmation"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={closureOpen} onOpenChange={setClosureOpen}>
+        <DialogContent className="confirm-dialog">
+          <DialogHeader>
+            <DialogTitle>Close early</DialogTitle>
+            <DialogDescription>
+              {countedInUnits
+                ? "Sell some or all of the units. What is left keeps running."
+                : "Withdraw some or all of the deposit. What is left keeps running."}
+            </DialogDescription>
+          </DialogHeader>
+          <FormField label="Date closed" id="closure-date">
+            <Input id="closure-date" type="date" value={closureDate} min={investment.investmentDate} onChange={(event) => setClosureDate(event.target.value)} />
+          </FormField>
+          <FormField label={countedInUnits ? `Units sold (of ${investment.units})` : "Amount withdrawn (₹)"} id="closure-portion">
+            <Input
+              id="closure-portion"
+              inputMode="decimal"
+              value={closurePortion}
+              onChange={(event) => setClosurePortion(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Amount received (optional)" id="closure-proceeds">
+            <Input id="closure-proceeds" inputMode="decimal" value={closureProceeds} onChange={(event) => setClosureProceeds(event.target.value)} />
+          </FormField>
+          {/*
+            The interest earned since the last payout is shown before saving,
+            because it is the number the buyer or the bank should be settling
+            and the only one that cannot be checked afterwards.
+          */}
+          {closurePreview && (
+            <div className="confirmation-split">
+              <span><small>Interest since {formatDate(closurePreview.accrualFrom)}</small><b>{formatMoney(closurePreview.accruedInterestPaise)}</b></span>
+              <span><small>{countedInUnits ? "Units left" : "Amount left"}</small><b>{countedInUnits ? closurePreview.remainingPortion : formatMoney(closurePreview.remainingPrincipalPaise)}</b></span>
+              <span><small>Payouts ahead</small><b>{closurePreview.fullExit ? "Cancelled" : "Reduced"}</b></span>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClosureOpen(false)}>Cancel</Button>
+            <Button disabled={savingClosure} onClick={() => void saveClosure()}>{savingClosure ? "Saving…" : "Close"}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

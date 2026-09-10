@@ -13,6 +13,7 @@ const identity = await vite.ssrLoadModule("/core/identity/user-reference.ts");
 const contributions = await vite.ssrLoadModule("/core/finance/contributions.ts");
 const scan = await vite.ssrLoadModule("/core/finance/scan-mapping.ts");
 const billing = await vite.ssrLoadModule("/lib/plans.ts");
+const closure = await vite.ssrLoadModule("/core/finance/closure.ts");
 
 test("uses exact date accrual for a complete non-leap year", () => {
   assert.equal(finance.calculateInterestForDates(10_000_000n, 750, "2025-01-01", "2026-01-01", "actual-365"), 750_000n);
@@ -461,4 +462,108 @@ test("paise are shown when there are any, and dropped when there are none", () =
   assert.equal(finance.formatMoney(0n), "₹0");
   assert.equal(finance.formatMoney(-97_671n), "−₹976.71");
   assert.equal(finance.formatMoney(-10_000_000n), "−₹1,00,000");
+});
+
+const orangeRows = [
+  { id: "p1", dueDate: "2026-10-01", grossInterestPaise: 116_580n, principalRepaidPaise: 0n, expectedTdsPaise: 0n },
+  { id: "p2", dueDate: "2026-11-01", grossInterestPaise: 97_670n, principalRepaidPaise: 0n, expectedTdsPaise: 0n },
+  { id: "p3", dueDate: "2026-12-01", grossInterestPaise: 94_520n, principalRepaidPaise: 0n, expectedTdsPaise: 0n },
+];
+
+test("selling a bond part-way through a period earns the interest since the last payout", () => {
+  // Two of ten units sold on 16/11/2026: the period began at the 01/11 payout,
+  // so 15 days of interest on a fifth of the holding.
+  const position = closure.closurePosition({
+    closureDate: "2026-11-16",
+    closedPortion: 2,
+    heldPortion: 10,
+    schedule: orangeRows,
+    interestBasePaise: 10_000_020n,
+    principalPaise: 9_776_028n,
+    annualRateBps: 1150,
+    interestStartDate: "2026-08-25",
+  });
+  assert.equal(position.accrualFrom, "2026-11-01");
+  const whole = finance.calculateInterestForDates(10_000_020n, 1150, "2026-11-01", "2026-11-16", "actual-365");
+  assert.equal(position.accruedInterestPaise, (whole * 2n) / 10n);
+  assert.equal(position.fullExit, false);
+  assert.equal(position.remainingPortion, 8);
+  // Only the payouts still ahead are touched.
+  assert.deepEqual(position.scaledPayoutIds, ["p3"]);
+  assert.deepEqual(position.cancelledPayoutIds, []);
+});
+
+test("a full exit cancels what is left rather than scaling it", () => {
+  const position = closure.closurePosition({
+    closureDate: "2026-11-16",
+    closedPortion: 10,
+    heldPortion: 10,
+    schedule: orangeRows,
+    interestBasePaise: 10_000_020n,
+    principalPaise: 9_776_028n,
+    annualRateBps: 1150,
+    interestStartDate: "2026-08-25",
+  });
+  assert.equal(position.fullExit, true);
+  assert.equal(position.remainingPrincipalPaise, 0n);
+  assert.deepEqual(position.cancelledPayoutIds, ["p3"]);
+  assert.deepEqual(position.scaledPayoutIds, []);
+});
+
+test("a deposit breaks by amount, not units, and keeps the rest running", () => {
+  // ₹2,00,000 taken out of a ₹5,00,000 deposit leaves ₹3,00,000 earning.
+  const position = closure.closurePosition({
+    closureDate: "2026-11-16",
+    closedPortion: 20_000_000,
+    heldPortion: 50_000_000,
+    schedule: [],
+    interestBasePaise: 50_000_000n,
+    principalPaise: 50_000_000n,
+    annualRateBps: 750,
+    interestStartDate: "2026-04-01",
+  });
+  assert.equal(position.remainingPrincipalPaise, 30_000_000n);
+  assert.equal(position.fullExit, false);
+  // No payout has fallen due, so interest runs from where it started accruing.
+  assert.equal(position.accrualFrom, "2026-04-01");
+  const whole = finance.calculateInterestForDates(50_000_000n, 750, "2026-04-01", "2026-11-16", "actual-365");
+  assert.equal(position.accruedInterestPaise, (whole * 2n) / 5n);
+});
+
+test("a surviving payout is reduced to the portion still held", () => {
+  const scaled = closure.scalePayout(
+    { grossInterestPaise: 100_000n, principalRepaidPaise: 500_000n, expectedTdsPaise: 10_000n },
+    8,
+    10,
+  );
+  assert.equal(scaled.grossInterestPaise, 80_000n);
+  assert.equal(scaled.principalRepaidPaise, 400_000n);
+  assert.equal(scaled.expectedTdsPaise, 8_000n);
+  assert.equal(scaled.expectedNetPaise, 472_000n);
+});
+
+test("fractional units keep their precision through a part-closure", () => {
+  const position = closure.closurePosition({
+    closureDate: "2026-11-16",
+    closedPortion: 120.5,
+    heldPortion: 241,
+    schedule: [],
+    interestBasePaise: 10_000_000n,
+    principalPaise: 10_000_000n,
+    annualRateBps: 1000,
+    interestStartDate: "2026-11-01",
+  });
+  assert.equal(position.remainingPrincipalPaise, 5_000_000n);
+  assert.equal(position.remainingPortion, 120.5);
+});
+
+test("maturity is the date arriving, not a button being pressed", () => {
+  assert.equal(closure.hasMatured({ maturityDate: "2026-08-25", status: "active" }, "2026-09-10"), true);
+  assert.equal(closure.hasMatured({ maturityDate: "2028-08-25", status: "active" }, "2026-09-10"), false);
+  // On the day itself it has matured.
+  assert.equal(closure.hasMatured({ maturityDate: "2026-09-10", status: "active" }, "2026-09-10"), true);
+  // A holding sold out of does not later "mature".
+  assert.equal(closure.hasMatured({ maturityDate: "2026-08-25", status: "closed" }, "2026-09-10"), false);
+  // Something open-ended never matures.
+  assert.equal(closure.hasMatured({ status: "active" }, "2026-09-10"), false);
 });

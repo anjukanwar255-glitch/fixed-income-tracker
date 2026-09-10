@@ -7,6 +7,7 @@ import {
   deleteOp,
   documents,
   firstDoc,
+  closures,
   contributions,
   forms,
   investments,
@@ -123,7 +124,7 @@ export async function hasRestorableBackup(identity: AuthenticatedRequest) {
 }
 
 export async function collectUserData(ownerId: string) {
-  const [stored, investmentRows, schedules, transactions, tds, formRows, documentRows, notificationRows, activities, contributionRows] = await Promise.all([
+  const [stored, investmentRows, schedules, transactions, tds, formRows, documentRows, notificationRows, activities, contributionRows, closureRows] = await Promise.all([
     readDoc(userDoc(ownerId)),
     listDocs(investments(ownerId)),
     listDocs(payoutSchedules(ownerId)),
@@ -134,6 +135,7 @@ export async function collectUserData(ownerId: string) {
     listDocs(notifications(ownerId)),
     listDocs(activityLogs(ownerId)),
     listDocs(contributions(ownerId)),
+    listDocs(closures(ownerId)),
   ]);
   return {
     profile: stored && !stored.deletedAt ? stored : null,
@@ -146,6 +148,7 @@ export async function collectUserData(ownerId: string) {
     notifications: notificationRows,
     activityLogs: activities,
     contributions: contributionRows,
+    closures: closureRows,
   };
 }
 

@@ -15,6 +15,7 @@ import type {
   ActivityLogDoc,
   AdminSettingDoc,
   BackupRunDoc,
+  ClosureDoc,
   ContributionDoc,
   FeedbackDoc,
   BillingEventDoc,
@@ -126,6 +127,10 @@ export function payoutTransactions(uid: string) {
 
 export function tdsRecords(uid: string) {
   return userDoc(uid).collection("tdsRecords") as CollectionReference<TdsRecordDoc>;
+}
+
+export function closures(uid: string) {
+  return userDoc(uid).collection("closures") as CollectionReference<ClosureDoc>;
 }
 
 export function feedback(uid: string) {
