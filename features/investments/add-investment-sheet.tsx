@@ -35,6 +35,7 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { indianBankGroups } from "@/core/data/indian-banks";
+import { investmentTypeCatalog } from "@/core/data/investment-types";
 import { DECLARATION_FORM_TYPE, TDS_RATE_WITHOUT_PAN_BPS, TDS_RATE_WITH_PAN_BPS } from "@/core/tax/declarations";
 import { formatMoney, generatePayoutSchedule, parseRupeesToPaise, previousCouponDate } from "@/core/finance/calculations";
 import { apiFetch, uploadDocumentFile } from "@/lib/firebase-client";
@@ -93,16 +94,18 @@ const payoutOptions: { value: PayoutFrequency; label: string }[] = [
   { value: "on-maturity", label: "On maturity" },
 ];
 
-const investmentTypes: { value: InvestmentType; title: string; note: string; icon: typeof Landmark }[] = [
-  { value: "fixed-deposit", title: "Fixed Deposit", note: "Bank or small finance bank", icon: Landmark },
-  { value: "corporate-fd", title: "Corporate FD", note: "Company fixed deposit", icon: Building2 },
-  { value: "corporate-bond", title: "Corporate Bond", note: "Listed or unlisted bond", icon: Banknote },
-  { value: "government-bond", title: "Government Bond", note: "Sovereign bond", icon: Landmark },
-  { value: "ncd", title: "NCD", note: "Non-convertible debenture", icon: ReceiptIndianRupee },
-  { value: "debenture", title: "Debenture", note: "Other debenture", icon: FileText },
-  { value: "government-security", title: "Government Security", note: "T-bill or G-Sec", icon: Landmark },
-  { value: "other", title: "Other", note: "Custom fixed-income product", icon: FileText },
-];
+const typeIcons: Record<InvestmentType, typeof Landmark> = {
+  "fixed-deposit": Landmark,
+  "corporate-fd": Building2,
+  "corporate-bond": Banknote,
+  "government-bond": Landmark,
+  ncd: ReceiptIndianRupee,
+  debenture: FileText,
+  "government-security": Landmark,
+  other: FileText,
+};
+
+const investmentTypes = investmentTypeCatalog.map((entry) => ({ ...entry, icon: typeIcons[entry.value] }));
 
 export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestment }: Props) {
   const [step, setStep] = useState(1);

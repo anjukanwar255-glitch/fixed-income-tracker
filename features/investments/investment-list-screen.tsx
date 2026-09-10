@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatMoney } from "@/core/finance/calculations";
+import { investmentTypeCatalog, investmentTypeLabels } from "@/core/data/investment-types";
 import { activeInFinancialYear } from "@/features/app/financial-year-select";
 import type { PortfolioInvestment } from "@/core/models/financial";
 
@@ -19,16 +20,7 @@ type Props = {
   financialYear: string;
 };
 
-const typeLabels: Record<string, string> = {
-  "fixed-deposit": "FD",
-  "corporate-fd": "Corporate FD",
-  "corporate-bond": "Bond",
-  "government-bond": "Govt Bond",
-  ncd: "NCD",
-  debenture: "Debenture",
-  "government-security": "G-Sec",
-  other: "Other",
-};
+const typeLabels = investmentTypeLabels;
 
 export function InvestmentListScreen({ investments, onOpenInvestment, onAddInvestment, financialYear }: Props) {
   const [query, setQuery] = useState("");
@@ -71,11 +63,9 @@ export function InvestmentListScreen({ investments, onOpenInvestment, onAddInves
       <Tabs value={type} onValueChange={setType} className="type-tabs">
         <TabsList variant="line" className="scrollbar-none">
           <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="fixed-deposit">FD</TabsTrigger>
-          <TabsTrigger value="corporate-fd">Corporate FD</TabsTrigger>
-          <TabsTrigger value="corporate-bond">Bond</TabsTrigger>
-          <TabsTrigger value="ncd">NCD</TabsTrigger>
-          <TabsTrigger value="government-security">G-Sec</TabsTrigger>
+          {investmentTypeCatalog.map((entry) => (
+            <TabsTrigger value={entry.value} key={entry.value}>{entry.shortLabel}</TabsTrigger>
+          ))}
         </TabsList>
       </Tabs>
 
