@@ -37,11 +37,19 @@ export function PayoutsScreen({ investments, financialYear, onDataChanged }: { i
     .filter((investment) => investment.schedule.some((payout) => payout.financialYear === financialYear))
     .sort((a, b) => a.name.localeCompare(b.name)), [investments, financialYear]);
 
+  /*
+   * A holding picked here can stop having payouts when the year is changed in
+   * the header. Falling back to all of them beats leaving the filter naming
+   * something that is no longer among its own choices, over an empty list with
+   * no visible reason for being empty.
+   */
+  const selected = withPayouts.some((investment) => investment.id === holding) ? holding : "all";
+
   const allRows = useMemo(() => investments
     .flatMap((investment) => investment.schedule.map((payout) => ({ investment, payout })))
     .filter(({ payout }) => payout.financialYear === financialYear)
-    .filter(({ investment }) => holding === "all" || investment.id === holding)
-    .sort((a, b) => a.payout.dueDate.localeCompare(b.payout.dueDate)), [investments, financialYear, holding]);
+    .filter(({ investment }) => selected === "all" || investment.id === selected)
+    .sort((a, b) => a.payout.dueDate.localeCompare(b.payout.dueDate)), [investments, financialYear, selected]);
   const rows = allRows.filter(({ payout }) => {
     if (filter === "all") return true;
     if (filter === "received") return payout.status === "received" || payout.status === "partial-received";
@@ -64,10 +72,10 @@ export function PayoutsScreen({ investments, financialYear, onDataChanged }: { i
       <Tabs value={filter} onValueChange={(value) => setFilter(value as PayoutFilter)} className="filter-tabs"><TabsList variant="line"><TabsTrigger value="upcoming">Upcoming</TabsTrigger><TabsTrigger value="due">Due</TabsTrigger><TabsTrigger value="received">Received</TabsTrigger><TabsTrigger value="not-received">Not received</TabsTrigger><TabsTrigger value="all">All</TabsTrigger></TabsList></Tabs>
       {withPayouts.length > 1 && (
         <div className="payout-holding-filter">
-          <Select value={holding} onValueChange={setHolding}>
+          <Select value={selected} onValueChange={setHolding}>
             <SelectTrigger aria-label="Investment"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All investments</SelectItem>
+              <SelectItem value="all">All investments ({withPayouts.length})</SelectItem>
               {withPayouts.map((investment) => (
                 <SelectItem value={investment.id} key={investment.id}>{investment.name}</SelectItem>
               ))}
