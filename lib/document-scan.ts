@@ -34,6 +34,7 @@ export type ScannedInvestment = {
   orderReference?: string;
   ifscCode?: string;
   investmentDate?: string;
+  settlementDate?: string;
   amountPaidRupees?: number;
   faceValueRupees?: number;
   expectedMaturityRupees?: number;
@@ -59,6 +60,7 @@ const responseSchema = {
     issuerName: { type: Type.STRING, description: "The bank or company that issued it, not the broker or platform." },
     investmentNumber: { type: Type.STRING, description: "ISIN, FD receipt number, folio or certificate number." },
     investmentDate: { type: Type.STRING, description: "Purchase or deposit date as YYYY-MM-DD." },
+    settlementDate: { type: Type.STRING, description: "Date the trade settled and the securities were delivered, as YYYY-MM-DD. Labelled 'Settlement Date'; usually a day or two after the order date. Accrued interest is calculated up to this date, not to the order date." },
     amountPaidRupees: { type: Type.NUMBER, description: "Total rupees actually paid. Labelled 'Total Consideration' or 'Total Investment Amount' on a deal sheet. Includes any premium and accrued interest." },
     faceValueRupees: { type: Type.NUMBER, description: "The principal the issuer pays interest on and repays at maturity. Labelled 'Total Principal Amount', or the 'Face Value per Unit' multiplied by the 'Number of Units'. Report it whenever the document states it, even if you are unsure whether it differs from the amount paid." },
     expectedMaturityRupees: { type: Type.NUMBER, description: "Total expected on the maturity date. Read it from the final row of a repayment schedule when one is supplied — principal repaid plus any interest paid alongside it. Otherwise it is the printed maturity value on a cumulative deposit, or the face value for a bond that repays principal at maturity." },
@@ -211,6 +213,7 @@ function sanitise(raw: Record<string, unknown>): ScannedInvestment {
   const ifsc = typeof raw.ifscCode === "string" ? raw.ifscCode.trim().toUpperCase() : "";
   if (/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) result.ifscCode = ifsc;
   result.investmentDate = isoDate(raw.investmentDate);
+  result.settlementDate = isoDate(raw.settlementDate);
   result.amountPaidRupees = positive(raw.amountPaidRupees);
   result.faceValueRupees = positive(raw.faceValueRupees);
   result.expectedMaturityRupees = positive(raw.expectedMaturityRupees);

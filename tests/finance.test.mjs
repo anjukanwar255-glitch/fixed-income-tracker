@@ -11,6 +11,7 @@ const files = await vite.ssrLoadModule("/lib/file-validation.ts");
 const tax = await vite.ssrLoadModule("/core/tax/declarations.ts");
 const identity = await vite.ssrLoadModule("/core/identity/user-reference.ts");
 const contributions = await vite.ssrLoadModule("/core/finance/contributions.ts");
+const scan = await vite.ssrLoadModule("/core/finance/scan-mapping.ts");
 
 test("uses exact date accrual for a complete non-leap year", () => {
   assert.equal(finance.calculateInterestForDates(10_000_000n, 750, "2025-01-01", "2026-01-01", "actual-365"), 750_000n);
@@ -339,4 +340,93 @@ test("only paid instalments count as money in", () => {
   assert.equal(totals.paid, 100n);
   assert.equal(totals.paidCount, 1);
   assert.equal(totals.missed, 1);
+});
+
+/*
+ * Orange Retail Finance INE786X07BM8, from a real Grip deal sheet and
+ * statement. It amortises: from April 2028 it returns 16,666.70 of principal
+ * every month, so by maturity only the last instalment is left. It also opens
+ * with a stub — interest runs from 25/08/2026 but coupons fall on the 1st, so
+ * the first period is 37 days, not 30.
+ */
+const orangeSchedule = [
+  { dueDate: "2026-10-01", interestPaise: 116_580, principalPaise: 0 },
+  { dueDate: "2027-02-01", interestPaise: 97_670, principalPaise: 0 },
+  { dueDate: "2028-04-01", interestPaise: 97_400, principalPaise: 1_666_670 },
+  { dueDate: "2028-08-25", interestPaise: 12_570, principalPaise: 1_666_670 },
+];
+
+test("an amortising bond matures at its last instalment, not its face value", () => {
+  assert.equal(
+    scan.maturityAmountFromScan({
+      scheduleRows: orangeSchedule,
+      faceValuePaise: 10_000_020,
+      amountPaidPaise: 9_776_028,
+      payoutFrequency: "monthly",
+      interestType: "simple",
+    }),
+    1_679_240,
+  );
+});
+
+test("a printed maturity amount always wins", () => {
+  assert.equal(
+    scan.maturityAmountFromScan({ expectedMaturityPaise: 5_000_000, scheduleRows: orangeSchedule, faceValuePaise: 10_000_020 }),
+    5_000_000,
+  );
+});
+
+test("without a schedule, a bullet bond still matures at face value", () => {
+  assert.equal(
+    scan.maturityAmountFromScan({ faceValuePaise: 10_000_000, payoutFrequency: "monthly", interestType: "simple" }),
+    10_000_000,
+  );
+  // A cumulative deposit rolls its interest into the final payment, so the
+  // figure has to come off the paperwork rather than be assumed.
+  assert.equal(
+    scan.maturityAmountFromScan({ faceValuePaise: 10_000_000, payoutFrequency: "on-maturity", interestType: "cumulative" }),
+    null,
+  );
+});
+
+test("the accrual date comes back from the accrued interest, stub period and all", () => {
+  // ₹409.61 accrued at 11.50% on ₹1,00,000.20 is exactly 13 days, and
+  // settlement was 07/09/2026 — so interest runs from 25/08/2026. Stepping one
+  // month back from the first payout would have said 01/09 and been wrong.
+  assert.equal(
+    scan.interestStartFromAccrued({
+      accruedInterestPaise: 40_961,
+      interestBasePaise: 10_000_020,
+      annualRateBps: 1150,
+      settlementDate: "2026-09-07",
+    }),
+    "2026-08-25",
+  );
+  assert.notEqual(finance.previousCouponDate("2026-10-01", "monthly"), "2026-08-25");
+});
+
+test("no accrued interest, no derived accrual date", () => {
+  const base = { interestBasePaise: 10_000_020, annualRateBps: 1150, settlementDate: "2026-09-07" };
+  assert.equal(scan.interestStartFromAccrued({ ...base, accruedInterestPaise: 0 }), null);
+  assert.equal(scan.interestStartFromAccrued({ ...base, accruedInterestPaise: -5 }), null);
+  // More than a year of accrual means the numbers do not belong together.
+  assert.equal(scan.interestStartFromAccrued({ ...base, accruedInterestPaise: 90_000_000 }), null);
+  assert.equal(scan.interestStartFromAccrued({ ...base, accruedInterestPaise: 40_961, annualRateBps: 0 }), null);
+});
+
+test("the Orange statement's own rows survive the document schedule intact", () => {
+  const rows = finance.scheduleFromDocument(
+    orangeSchedule.map((row) => ({
+      dueDate: row.dueDate,
+      interestPaise: BigInt(row.interestPaise),
+      principalPaise: BigInt(row.principalPaise),
+    })),
+    { tdsApplicable: false, expectedTdsRateBps: 0 },
+  );
+  assert.equal(rows.length, 4);
+  // The 37-day opening coupon is larger than a full month, and stays that way.
+  assert.equal(rows[0].grossInterestPaise, 116_580n);
+  assert.equal(rows[0].principalRepaidPaise, 0n);
+  // The final row is principal plus its last interest.
+  assert.equal(rows[3].expectedNetPaise, 1_679_240n);
 });

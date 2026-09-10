@@ -42,6 +42,7 @@ import { indianBankGroups } from "@/core/data/indian-banks";
 import { assetClassOf, earnsInterest, holdsUnits, investmentTypeCatalog, providesCover, takesContributions } from "@/core/data/investment-types";
 import { DECLARATION_FORM_TYPE, TDS_RATE_WITHOUT_PAN_BPS, TDS_RATE_WITH_PAN_BPS } from "@/core/tax/declarations";
 import { formatMoney, generatePayoutSchedule, parseRupeesToPaise, previousCouponDate } from "@/core/finance/calculations";
+import { interestStartFromAccrued, maturityAmountFromScan } from "@/core/finance/scan-mapping";
 import { apiFetch, uploadDocumentFile } from "@/lib/firebase-client";
 import type { CompoundingFrequency, ContributionFrequency, DayCountBasis, InterestType, InvestmentType, PayoutFrequency, PortfolioInvestment } from "@/core/models/financial";
 
@@ -264,56 +265,62 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
       if (typeof found.dayCountBasis === "string") { setDayCountBasis(found.dayCountBasis as DayCountBasis); filled += 1; }
       if (scannedInterestType) { setInterestType(scannedInterestType); filled += 1; }
 
-      /*
-       * A bond that pays its interest out along the way repays the principal
-       * and nothing else at the end, so the maturity amount is the face value
-       * — determinate, and not worth leaving blank just because no document
-       * prints it under that heading. A cumulative product is the opposite:
-       * the interest is rolled up into the final payment, so the figure has to
-       * come off the paperwork and is left empty when it does not.
-       */
-      const principalAtMaturity = typeof found.faceValueRupees === "number"
-        ? found.faceValueRupees
-        : typeof found.amountPaidRupees === "number" ? found.amountPaidRupees : null;
-      const repaysPrincipalOnly = scannedFrequency !== null
-        && scannedFrequency !== "on-maturity"
-        && scannedInterestType !== "cumulative";
-      if (typeof found.expectedMaturityRupees === "number") {
-        setMaturityAmount(String(found.expectedMaturityRupees));
-        filled += 1;
-      } else if (repaysPrincipalOnly && principalAtMaturity !== null) {
-        setMaturityAmount(String(principalAtMaturity));
-        filled += 1;
-      }
-
-      /*
-       * When the documents show interest was paid to the seller, the purchase
-       * landed part-way through a coupon period, so interest runs from the
-       * previous coupon date rather than from the purchase.
-       *
-       * The date is derived here rather than asked for: stepping one period
-       * back from the first payout is exact, where having the model divide an
-       * accrued amount by a daily rate is arithmetic it can quietly get wrong.
-       * A date the documents state outright is still preferred.
-       */
-      const statedStart = typeof found.interestStartDate === "string" ? found.interestStartDate : null;
-      const paidAccruedInterest = typeof found.accruedInterestPaidRupees === "number" && found.accruedInterestPaidRupees > 0;
-      const scannedFirstPayout = typeof found.firstPayoutDate === "string" ? found.firstPayoutDate : null;
-      const derivedStart = paidAccruedInterest && scannedFirstPayout && scannedFrequency
-        ? previousCouponDate(scannedFirstPayout, scannedFrequency)
-        : null;
-      applyText(statedStart ?? derivedStart, setInterestStartDate);
-
-      if (Array.isArray(found.repaymentSchedule)) {
-        const rows = (found.repaymentSchedule as { dueDate: string; interestRupees: number; principalRupees: number }[])
+      const documentRows = Array.isArray(found.repaymentSchedule)
+        ? (found.repaymentSchedule as { dueDate: string; interestRupees: number; principalRupees: number }[])
           .map((row) => ({
             dueDate: row.dueDate,
             interestPaise: Math.round(row.interestRupees * 100),
             principalPaise: Math.round(row.principalRupees * 100),
-          }));
-        setScannedSchedule(rows);
-        if (rows.length) filled += 1;
+          }))
+        : [];
+
+      const maturityPaise = maturityAmountFromScan({
+        scheduleRows: documentRows,
+        expectedMaturityPaise: typeof found.expectedMaturityRupees === "number" ? Math.round(found.expectedMaturityRupees * 100) : undefined,
+        faceValuePaise: typeof found.faceValueRupees === "number" ? Math.round(found.faceValueRupees * 100) : undefined,
+        amountPaidPaise: typeof found.amountPaidRupees === "number" ? Math.round(found.amountPaidRupees * 100) : undefined,
+        payoutFrequency: scannedFrequency,
+        interestType: scannedInterestType,
+      });
+      if (maturityPaise !== null) {
+        setMaturityAmount(paiseToInput(BigInt(maturityPaise)));
+        filled += 1;
       }
+
+      /*
+       * Interest paid to the seller means the purchase landed part-way through
+       * a coupon period, so interest runs from before the purchase.
+       *
+       * How far before is worked back from the accrued amount itself, because
+       * stepping one period back from the first payout assumes every period is
+       * a full one. A bond issued mid-month but paying on the 1st opens with a
+       * stub, and stepping back lands a week late. The step-back is kept only
+       * as a fallback for when there is no accrued figure to divide.
+       */
+      const statedStart = typeof found.interestStartDate === "string" ? found.interestStartDate : null;
+      const accruedPaise = typeof found.accruedInterestPaidRupees === "number" ? Math.round(found.accruedInterestPaidRupees * 100) : 0;
+      const interestBasePaise = typeof found.faceValueRupees === "number"
+        ? Math.round(found.faceValueRupees * 100)
+        : typeof found.amountPaidRupees === "number" ? Math.round(found.amountPaidRupees * 100) : 0;
+      const settledOn = typeof found.settlementDate === "string"
+        ? found.settlementDate
+        : typeof found.investmentDate === "string" ? found.investmentDate : "";
+      const rateBps = typeof found.interestRatePercent === "number" ? Math.round(found.interestRatePercent * 100) : 0;
+
+      const scannedFirstPayout = typeof found.firstPayoutDate === "string" ? found.firstPayoutDate : null;
+      const fromAccrued = interestStartFromAccrued({
+        accruedInterestPaise: accruedPaise,
+        interestBasePaise,
+        annualRateBps: rateBps,
+        settlementDate: settledOn,
+      });
+      const steppedBack = accruedPaise > 0 && scannedFirstPayout && scannedFrequency
+        ? previousCouponDate(scannedFirstPayout, scannedFrequency)
+        : null;
+      applyText(statedStart ?? fromAccrued ?? steppedBack, setInterestStartDate);
+
+      setScannedSchedule(documentRows);
+      if (documentRows.length) filled += 1;
 
       // These are the papers this investment should be filed with, so they
       // carry through to the documents step instead of being asked for twice.
