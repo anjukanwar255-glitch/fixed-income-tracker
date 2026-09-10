@@ -207,7 +207,7 @@ export function FixedIncomeApp() {
         <div className="sidebar-brand"><span className="brand-mark"><Landmark /></span><span><b>Portfolio</b><small>Investments &amp; cover</small></span></div>
         <nav aria-label="Primary navigation">
           {navItems.map(({ value, label, icon: Icon }) => (
-            <button data-active={!selected && screen === value} key={value} onClick={() => navigate(value)}><Icon /><span>{label}</span></button>
+            <button data-active={selected ? value === "investments" : screen === value} key={value} onClick={() => navigate(value)}><Icon /><span>{label}</span></button>
           ))}
         </nav>
         <button className="sidebar-add" onClick={openAddInvestment}><CirclePlus /> Add investment</button>
@@ -233,7 +233,7 @@ export function FixedIncomeApp() {
           ) : screen === "investments" ? (
             <InvestmentListScreen investments={investments} onOpenInvestment={openInvestment} onAddInvestment={openAddInvestment} financialYear={financialYear} />
           ) : screen === "payouts" ? (
-            <PayoutsScreen investments={investments} onOpenInvestment={openInvestment} financialYear={financialYear} />
+            <PayoutsScreen investments={investments} financialYear={financialYear} onDataChanged={loadPortfolio} />
           ) : screen === "subscription" ? (
             <SubscriptionScreen entitlement={billing.entitlement} plans={billing.plans} displayName={displayName} email={ownAccount.profile?.email ?? null} phoneNumber={auth.user?.phoneNumber ?? null} onBillingChanged={loadBilling} />
           ) : screen === "feedback" ? (
@@ -248,7 +248,7 @@ export function FixedIncomeApp() {
 
       <nav className="mobile-bottom-nav" aria-label="Primary navigation">
         {mobileNavItems.map(({ value, label, icon: Icon }) => (
-          <button data-active={!selected && screen === value} key={value} onClick={() => navigate(value)}><Icon /><small>{label}</small></button>
+          <button data-active={selected ? value === "investments" : screen === value} key={value} onClick={() => navigate(value)}><Icon /><small>{label}</small></button>
         ))}
       </nav>
       <button className="mobile-floating-add" onClick={openAddInvestment} aria-label="Add investment"><CirclePlus /></button>

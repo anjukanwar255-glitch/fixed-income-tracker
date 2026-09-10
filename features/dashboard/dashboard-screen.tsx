@@ -79,7 +79,7 @@ export function DashboardScreen({
     <div className="screen dashboard-screen">
       <header className="screen-header dashboard-header">
         <div>
-          <p className="screen-kicker">Good morning</p>
+          <p className="screen-kicker">{greeting()}</p>
           <h1>Welcome, {displayName.split(" ")[0]}</h1>
         </div>
       </header>
@@ -188,4 +188,12 @@ function AttentionItem({ tone, icon: Icon, title, detail }: { tone: string; icon
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
+}
+
+/** The visitor's local hour, not the server's — the server is in another timezone. */
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
 }

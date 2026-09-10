@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatMoney } from "@/core/finance/calculations";
 import type { PortfolioInvestment } from "@/core/models/financial";
@@ -18,15 +19,29 @@ import { maskPhoneNumber } from "@/hooks/use-firebase-auth";
 import { apiFetch, getFirebaseAuth } from "@/lib/firebase-client";
 import type { Entitlement } from "@/lib/billing";
 import { PlanGrid, type Plan, planPeriodLabel, usePlanCheckout } from "@/features/billing/plan-checkout";
+import { PayoutConfirmDialog, type PayoutTarget } from "@/features/investments/payout-confirm-dialog";
 
 type PayoutFilter = "upcoming" | "due" | "received" | "not-received" | "all";
 
-export function PayoutsScreen({ investments, onOpenInvestment, financialYear }: { investments: PortfolioInvestment[]; onOpenInvestment: (id: string) => void; financialYear: string }) {
+export function PayoutsScreen({ investments, financialYear, onDataChanged }: { investments: PortfolioInvestment[]; financialYear: string; onDataChanged: () => Promise<unknown> }) {
   const [filter, setFilter] = useState<PayoutFilter>("upcoming");
+  const [holding, setHolding] = useState("all");
+  const [target, setTarget] = useState<PayoutTarget | null>(null);
+
+  /*
+   * Only the holdings that actually have a payout in this year are offered.
+   * Listing every investment would put choices in the filter that empty the
+   * list the moment they are picked.
+   */
+  const withPayouts = useMemo(() => investments
+    .filter((investment) => investment.schedule.some((payout) => payout.financialYear === financialYear))
+    .sort((a, b) => a.name.localeCompare(b.name)), [investments, financialYear]);
+
   const allRows = useMemo(() => investments
     .flatMap((investment) => investment.schedule.map((payout) => ({ investment, payout })))
     .filter(({ payout }) => payout.financialYear === financialYear)
-    .sort((a, b) => a.payout.dueDate.localeCompare(b.payout.dueDate)), [investments, financialYear]);
+    .filter(({ investment }) => holding === "all" || investment.id === holding)
+    .sort((a, b) => a.payout.dueDate.localeCompare(b.payout.dueDate)), [investments, financialYear, holding]);
   const rows = allRows.filter(({ payout }) => {
     if (filter === "all") return true;
     if (filter === "received") return payout.status === "received" || payout.status === "partial-received";
@@ -47,18 +62,44 @@ export function PayoutsScreen({ investments, onOpenInvestment, financialYear }: 
     <div className="screen secondary-screen">
       <header className="screen-header"><div><p className="screen-kicker">Cash flow · {financialYear}</p><h1>Payouts</h1></div></header>
       <Tabs value={filter} onValueChange={(value) => setFilter(value as PayoutFilter)} className="filter-tabs"><TabsList variant="line"><TabsTrigger value="upcoming">Upcoming</TabsTrigger><TabsTrigger value="due">Due</TabsTrigger><TabsTrigger value="received">Received</TabsTrigger><TabsTrigger value="not-received">Not received</TabsTrigger><TabsTrigger value="all">All</TabsTrigger></TabsList></Tabs>
+      {withPayouts.length > 1 && (
+        <div className="payout-holding-filter">
+          <Select value={holding} onValueChange={setHolding}>
+            <SelectTrigger aria-label="Investment"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All investments</SelectItem>
+              {withPayouts.map((investment) => (
+                <SelectItem value={investment.id} key={investment.id}>{investment.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
       <div className="secondary-summary"><span><CalendarClock /> {financialYear}</span><strong>{formatMoney(summaryTotal)}</strong><small>{allRows.length} payout{allRows.length === 1 ? "" : "s"} · {receivedCount} received</small></div>
       <div className="simple-list">
-        {rows.map(({ investment, payout }) => (
-          <button className="simple-row simple-row-button" key={`${investment.id}-${payout.id}`} onClick={() => onOpenInvestment(investment.id)}>
+        {rows.map(({ investment, payout }) => {
+          const settled = payout.status === "received" || payout.status === "partial-received";
+          return (
+          <div className="simple-row" key={`${investment.id}-${payout.id}`}>
             <span className="row-icon"><Landmark /></span>
             <span className="row-copy"><b>{investment.name}</b><small>{investment.issuer} · {formatDate(payout.dueDate)}</small></span>
             <span className="row-value"><b>{formatMoney(payout.receivedAmountPaise ?? payout.expectedNetPaise)}</b><small>{payout.receivedAmountPaise === undefined ? "Expected net" : "Bank confirmed"}</small></span>
-            <Badge className={payout.status === "received" ? "status-received" : payout.status === "overdue" || payout.status === "not-received" ? "status-mismatch" : "status-upcoming"}>{labelStatus(payout.status)}</Badge>
-          </button>
-        ))}
+            {settled
+              ? <Badge className={payout.status === "partial-received" ? "status-pending" : "status-received"}>{labelStatus(payout.status)}</Badge>
+              : payout.status === "upcoming"
+                ? <Badge className="status-upcoming">{labelStatus(payout.status)}</Badge>
+                : (
+                  <span className="payout-actions">
+                    <Button size="sm" onClick={() => setTarget({ investment, payout, outcome: "received" })}>Received</Button>
+                    <Button size="sm" variant="outline" onClick={() => setTarget({ investment, payout, outcome: "not-received" })}>Not received</Button>
+                  </span>
+                )}
+          </div>
+          );
+        })}
         {!rows.length && <InlineEmpty icon={CalendarClock} title={`No ${filter === "all" ? "" : `${filter.replace("-", " ")} `}payouts`} detail={`Nothing falls due in ${financialYear}. Change the year in the header to look elsewhere.`} />}
       </div>
+      <PayoutConfirmDialog target={target} onOpenChange={(open) => !open && setTarget(null)} onSaved={onDataChanged} />
     </div>
   );
 }

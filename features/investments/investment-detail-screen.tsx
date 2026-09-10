@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { MaskedField } from "@/components/masked-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -34,6 +33,7 @@ import { DECLARATION_FORM_TYPE, declarationPending } from "@/core/tax/declaratio
 import { contributionTotals } from "@/core/finance/contributions";
 import { earnsInterest, holdsUnits, providesCover } from "@/core/data/investment-types";
 import { closurePosition, hasMatured } from "@/core/finance/closure";
+import { PayoutConfirmDialog, type PayoutTarget } from "@/features/investments/payout-confirm-dialog";
 import { apiFetch, downloadDocument, uploadDocumentFile } from "@/lib/firebase-client";
 import type { PayoutProjection, PortfolioInvestment } from "@/core/models/financial";
 
@@ -44,20 +44,11 @@ type Props = {
   onEdit: () => void;
 };
 
-type PayoutDialog = { payout: PayoutProjection; outcome: "received" | "not-received" } | null;
 const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const allowedDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png"]);
 
 export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEdit }: Props) {
-  const [payoutDialog, setPayoutDialog] = useState<PayoutDialog>(null);
-  const [receivedAmount, setReceivedAmount] = useState("");
-  const [receivedDate, setReceivedDate] = useState(todayIso());
-  const [actualTds, setActualTds] = useState("");
-  const [accountNumber, setAccountNumber] = useState("");
-  const [paymentReference, setPaymentReference] = useState("");
-  const [followUpDate, setFollowUpDate] = useState("");
-  const [payoutRemarks, setPayoutRemarks] = useState("");
-  const [savingPayout, setSavingPayout] = useState(false);
+  const [payoutDialog, setPayoutDialog] = useState<PayoutTarget | null>(null);
   const [tdsDialog, setTdsDialog] = useState<PayoutProjection | null>(null);
   const [tdsReflected, setTdsReflected] = useState(true);
   const [reflectedAmount, setReflectedAmount] = useState("");
@@ -276,49 +267,6 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
     }
   };
 
-  const openPayout = (payout: PayoutProjection, outcome: "received" | "not-received") => {
-    setPayoutDialog({ payout, outcome });
-    setReceivedAmount(outcome === "received" ? paiseToInput(payout.expectedNetPaise) : "");
-    setActualTds(outcome === "received" ? paiseToInput(payout.expectedTdsPaise) : "");
-    setReceivedDate(todayIso()); setAccountNumber(investment.accountNumber ?? ""); setPaymentReference(""); setFollowUpDate(""); setPayoutRemarks("");
-  };
-
-  const savePayout = async () => {
-    if (!payoutDialog) return;
-    if (payoutDialog.outcome === "received" && parseRupeesToPaise(receivedAmount) < 0n) return;
-    if (accountNumber && !/^\d{9,18}$/.test(accountNumber)) {
-      toast.error("Enter a valid account number (9 to 18 digits)"); return;
-    }
-    setSavingPayout(true);
-    try {
-      const response = await apiFetch("/api/payouts", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          scheduleId: payoutDialog.payout.id,
-          outcome: payoutDialog.outcome,
-          receivedAmountPaise: payoutDialog.outcome === "received" ? Number(parseRupeesToPaise(receivedAmount)) : undefined,
-          receivedDate: payoutDialog.outcome === "received" ? receivedDate : undefined,
-          actualTdsPaise: payoutDialog.outcome === "received" ? Number(parseRupeesToPaise(actualTds)) : undefined,
-          principalRepaidPaise: Number(payoutDialog.payout.principalRepaidPaise),
-          bankAccountNumber: accountNumber,
-          paymentReference,
-          followUpDate: payoutDialog.outcome === "not-received" && followUpDate ? followUpDate : undefined,
-          remarks: payoutRemarks,
-        }),
-      });
-      const result = await response.json() as { error?: string; status?: string };
-      if (!response.ok) throw new Error(result.error ?? "Payout could not be saved");
-      await onDataChanged();
-      setPayoutDialog(null);
-      toast.success(payoutDialog.outcome === "received" ? "Payout confirmation saved" : "Payout marked not received");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Payout could not be saved");
-    } finally {
-      setSavingPayout(false);
-    }
-  };
-
   const openTdsVerification = (payout: PayoutProjection) => {
     setTdsDialog(payout); setTdsReflected(true);
     setReflectedAmount(paiseToInput(payout.actualTdsPaise ?? payout.expectedTdsPaise));
@@ -435,12 +383,12 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
         <TabsContent value="overview" className="detail-tab-content">
           <div className="detail-summary-grid">{summary.map(([label, value]) => <div className="detail-summary-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
           <section className="calculation-note"><ShieldCheck aria-hidden="true" /><div><b>Calculation basis</b><p>{formatMoney(investment.principalPaise)} × {(investment.annualRateBps / 100).toFixed(2)}% p.a. Expected values remain separate from bank-confirmed and PAN-verified values.</p></div></section>
-          <PayoutList investment={investment} onConfirm={openPayout} limit={3} />
+          <PayoutList investment={investment} onConfirm={(payout, outcome) => setPayoutDialog({ investment, payout, outcome })} limit={3} />
         </TabsContent>
 
         <TabsContent value="payouts" className="detail-tab-content">
           <SectionTitle title="Interest payout schedule" description={`${investment.schedule.length} expected payout${investment.schedule.length === 1 ? "" : "s"}`} />
-          <PayoutList investment={investment} onConfirm={openPayout} />
+          <PayoutList investment={investment} onConfirm={(payout, outcome) => setPayoutDialog({ investment, payout, outcome })} />
         </TabsContent>
 
         <TabsContent value="tds" className="detail-tab-content">
@@ -526,29 +474,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
         </TabsContent>
       </Tabs>
 
-      <Dialog open={Boolean(payoutDialog)} onOpenChange={(open) => !open && setPayoutDialog(null)}>
-        <DialogContent className="confirm-dialog">
-          <DialogHeader><DialogTitle>{payoutDialog?.outcome === "received" ? "Confirm payout received" : "Mark payout not received"}</DialogTitle><DialogDescription>{payoutDialog?.outcome === "received" ? "Record the amount actually credited. This does not verify PAN credit." : "Keep this payout visible for follow-up with the issuer."}</DialogDescription></DialogHeader>
-          <div className="confirmation-expected"><span>Expected credit</span><strong>{payoutDialog ? formatMoney(payoutDialog.payout.expectedNetPaise) : "—"}</strong></div>
-          {payoutDialog && payoutDialog.payout.principalRepaidPaise > 0n && (
-            <div className="confirmation-split">
-              <span><small>Interest</small><b>{formatMoney(payoutDialog.payout.grossInterestPaise)}</b></span>
-              <span><small>Principal returned</small><b>{formatMoney(payoutDialog.payout.principalRepaidPaise)}</b></span>
-              <span><small>TDS</small><b>{formatMoney(payoutDialog.payout.expectedTdsPaise)}</b></span>
-            </div>
-          )}
-          {payoutDialog?.outcome === "received" ? <>
-            <FormField label="Amount received" id="received-amount"><Input id="received-amount" inputMode="decimal" value={receivedAmount} onChange={(event) => setReceivedAmount(event.target.value)} /></FormField>
-            <FormField label="Received date" id="received-date"><Input id="received-date" type="date" value={receivedDate} onChange={(event) => setReceivedDate(event.target.value)} /></FormField>
-            <FormField label="Actual TDS deducted" id="actual-tds"><Input id="actual-tds" inputMode="decimal" value={actualTds} onChange={(event) => setActualTds(event.target.value)} /></FormField>
-            <MaskedField label="Credited to account" value={accountNumber} setValue={(value) => setAccountNumber(value.replace(/\D/g, "").slice(0, 18))} inputMode="numeric" placeholder="Account the money landed in" />
-            <FormField label="Transaction reference (optional)" id="transaction-ref"><Input id="transaction-ref" value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} /></FormField>
-          </> : <FormField label="Follow-up date (optional)" id="follow-up-date"><Input id="follow-up-date" type="date" value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} /></FormField>}
-          <FormField label="Remarks (optional)" id="payout-remarks"><Textarea id="payout-remarks" value={payoutRemarks} onChange={(event) => setPayoutRemarks(event.target.value)} /></FormField>
-          {payoutDialog?.outcome === "received" && parseRupeesToPaise(receivedAmount) !== payoutDialog.payout.expectedNetPaise && <div className="mismatch-note"><AlertTriangle /> Expected {formatMoney(payoutDialog.payout.expectedNetPaise)}; entered {formatMoney(parseRupeesToPaise(receivedAmount))}.</div>}
-          <DialogFooter><Button variant="outline" onClick={() => setPayoutDialog(null)}>Cancel</Button><Button disabled={savingPayout} onClick={() => void savePayout()}>{savingPayout ? "Saving…" : "Save confirmation"}</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PayoutConfirmDialog target={payoutDialog} onOpenChange={(open) => !open && setPayoutDialog(null)} onSaved={onDataChanged} />
 
       <Dialog open={closureOpen} onOpenChange={setClosureOpen}>
         <DialogContent className="confirm-dialog">
