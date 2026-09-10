@@ -28,18 +28,30 @@ const updateInput = z.object({
   investmentNumber: z.string().trim().max(80).default(""),
   principalPaise: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   faceValuePaise: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
-  interestRateBps: z.number().int().min(0).max(100_000),
+  interestRateBps: z.number().int().min(0).max(100_000).default(0),
   interestType: z.enum(["simple", "compound", "cumulative"]),
   compoundingFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly"]),
   dayCountBasis: z.enum(["actual-365", "actual-actual", "30-360"]),
-  payoutFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly", "on-maturity", "custom"]),
+  payoutFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly", "on-maturity", "custom"]).default("on-maturity"),
   investmentDate: z.string().date(),
   interestStartDate: z.string().date().optional(),
-  firstPayoutDate: z.string().date(),
-  maturityDate: z.string().date(),
+  firstPayoutDate: z.string().date().optional().or(z.literal("")),
+  maturityDate: z.string().date().optional().or(z.literal("")),
   expectedMaturityPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
-  tdsApplicable: z.boolean(),
-  expectedTdsRateBps: z.number().int().min(0).max(10_000),
+  tdsApplicable: z.boolean().default(false),
+  expectedTdsRateBps: z.number().int().min(0).max(10_000).default(0),
+  /** Unit-priced holdings; absent for anything lent at a rate. */
+  units: z.number().nonnegative().max(1e12).optional(),
+  costPerUnitPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  currentPricePerUnitPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  valuationDate: z.string().date().optional(),
+  /** Paid in over time — a SIP instalment or an insurance premium. */
+  contributionPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  contributionFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly", "single"]).optional(),
+  contributionStartDate: z.string().date().optional(),
+  contributionEndDate: z.string().date().optional(),
+  sumAssuredPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  policyNumber: z.string().trim().max(80).optional(),
   panLinked: z.boolean().default(false),
   declarationApplicable: z.boolean().default(false),
   bankName: z.string().trim().max(100).regex(/^[^\d]*$/, "Bank name cannot contain numbers").optional(),
@@ -66,12 +78,18 @@ const updateInput = z.object({
   advisorMobile: z.string().trim().regex(/^[6-9]\d{9}$/, "Enter a 10-digit mobile number").optional().or(z.literal("")),
   notes: z.string().trim().max(1000).optional(),
 }).superRefine((value, context) => {
-  if (value.maturityDate <= value.investmentDate) context.addIssue({ code: "custom", path: ["maturityDate"], message: "Maturity must be after investment date" });
-  if (value.payoutFrequency !== "on-maturity" && (value.firstPayoutDate < value.investmentDate || value.firstPayoutDate > value.maturityDate)) {
+  if (value.maturityDate && value.maturityDate <= value.investmentDate) {
+    context.addIssue({ code: "custom", path: ["maturityDate"], message: "Maturity must be after investment date" });
+  }
+  if (value.payoutFrequency !== "on-maturity" && value.firstPayoutDate && value.maturityDate
+    && (value.firstPayoutDate < value.investmentDate || value.firstPayoutDate > value.maturityDate)) {
     context.addIssue({ code: "custom", path: ["firstPayoutDate"], message: "First payout must fall within the investment term" });
   }
-  if (value.interestType !== "simple" && value.payoutFrequency !== "on-maturity") {
+  if (value.interestRateBps > 0 && value.interestType !== "simple" && value.payoutFrequency !== "on-maturity") {
     context.addIssue({ code: "custom", path: ["payoutFrequency"], message: "Compound and cumulative investments pay on maturity" });
+  }
+  if (value.contributionEndDate && value.contributionStartDate && value.contributionEndDate < value.contributionStartDate) {
+    context.addIssue({ code: "custom", path: ["contributionEndDate"], message: "The last instalment cannot fall before the first" });
   }
 });
 
@@ -104,8 +122,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     payoutFrequency: input.payoutFrequency,
     investmentDate: input.investmentDate,
     interestStartDate: input.interestStartDate ?? null,
-    firstPayoutDate: input.firstPayoutDate,
-    maturityDate: input.maturityDate,
+    firstPayoutDate: input.firstPayoutDate ?? "",
+    maturityDate: input.maturityDate ?? "",
     expectedMaturityPaise: input.expectedMaturityPaise ?? null,
     tdsApplicable: input.tdsApplicable,
     expectedTdsRateBps: input.expectedTdsRateBps,
@@ -123,8 +141,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     faceValuePaise: input.faceValuePaise === undefined ? undefined : BigInt(input.faceValuePaise),
     interestStartDate: input.interestStartDate,
     annualRateBps: input.interestRateBps, interestType: input.interestType, compoundingFrequency: input.compoundingFrequency,
-    dayCountBasis: input.dayCountBasis, payoutFrequency: input.payoutFrequency, firstPayoutDate: input.firstPayoutDate,
-    maturityDate: input.maturityDate, expectedMaturityPaise: input.expectedMaturityPaise === undefined ? undefined : BigInt(input.expectedMaturityPaise),
+    dayCountBasis: input.dayCountBasis, payoutFrequency: input.payoutFrequency, firstPayoutDate: input.firstPayoutDate ?? "",
+    maturityDate: input.maturityDate ?? "", expectedMaturityPaise: input.expectedMaturityPaise === undefined ? undefined : BigInt(input.expectedMaturityPaise),
     tdsApplicable: input.tdsApplicable, expectedTdsRateBps: input.expectedTdsRateBps,
   };
   const documentRows = input.repaymentSchedule?.length ? input.repaymentSchedule : null;
@@ -145,8 +163,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       interestRateBps: input.interestRateBps,
       interestType: input.interestType, compoundingFrequency: input.compoundingFrequency, dayCountBasis: input.dayCountBasis,
       payoutFrequency: input.payoutFrequency, investmentDate: input.investmentDate, interestStartDate: input.interestStartDate ?? null,
-      firstPayoutDate: input.firstPayoutDate,
-      maturityDate: input.maturityDate, expectedMaturityPaise: input.expectedMaturityPaise ?? null, tdsApplicable: input.tdsApplicable,
+      firstPayoutDate: input.firstPayoutDate ?? "",
+      maturityDate: input.maturityDate ?? "", expectedMaturityPaise: input.expectedMaturityPaise ?? null, tdsApplicable: input.tdsApplicable,
       expectedTdsRateBps: input.expectedTdsRateBps, panLinked: input.panLinked, declarationApplicable: input.declarationApplicable,
       bankName: input.bankName ?? null, ifscCode: input.ifscCode || null, accountNumber: input.accountNumber || null, paymentMode: input.paymentMode ?? null, nominee: input.nominee ?? null,
       brokerPlatform: input.brokerPlatform ?? null, dpId: input.dpId ?? null, clientId: input.clientId ?? null,

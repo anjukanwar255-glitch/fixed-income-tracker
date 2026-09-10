@@ -98,8 +98,46 @@ export interface InvestmentDoc extends Timestamps {
   advisorName?: string | null;
   advisorMobile?: string | null;
   notes?: string | null;
+  /**
+   * Unit-priced holdings. A stock or a fund is not owed a return, so what it
+   * is worth comes from the units held and a price the investor tells us —
+   * there is no market feed behind this.
+   */
+  units?: number | null;
+  costPerUnitPaise?: number | null;
+  currentPricePerUnitPaise?: number | null;
+  valuationDate?: string | null;
+  /** What is paid in over time, and for a policy what it buys. */
+  contributionPaise?: number | null;
+  contributionFrequency?: string | null;
+  contributionStartDate?: string | null;
+  contributionEndDate?: string | null;
+  sumAssuredPaise?: number | null;
+  policyNumber?: string | null;
   status: string;
   financialYear: string;
+  revision: number;
+}
+
+/**
+ * One SIP instalment or insurance premium, with whether it was actually paid.
+ *
+ * Its own collection rather than a signed row in the payout schedule: every
+ * total the app reports reduces over that schedule, and money moving the other
+ * way inside it would corrupt each one.
+ */
+export interface ContributionDoc extends Timestamps {
+  id: string;
+  investmentId: string;
+  dueDate: string;
+  financialYear: string;
+  amountPaise: number;
+  status: string;
+  paidAmountPaise?: number | null;
+  paidDate?: string | null;
+  paymentReference?: string | null;
+  remarks?: string | null;
+  source: string;
   revision: number;
 }
 

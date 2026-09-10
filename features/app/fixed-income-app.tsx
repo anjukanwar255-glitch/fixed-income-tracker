@@ -315,6 +315,27 @@ type StoredInvestment = {
     tdsVerificationDate: string | null;
     tdsStatus: PortfolioInvestment["schedule"][number]["tdsStatus"];
   }>;
+  units: number | null;
+  costPerUnitPaise: number | null;
+  currentPricePerUnitPaise: number | null;
+  valuationDate: string | null;
+  contributionPaise: number | null;
+  contributionFrequency: string | null;
+  contributionStartDate: string | null;
+  contributionEndDate: string | null;
+  sumAssuredPaise: number | null;
+  policyNumber: string | null;
+  contributions: Array<{
+    id: string;
+    dueDate: string;
+    financialYear: string;
+    amountPaise: number;
+    status: string;
+    paidAmountPaise: number | null;
+    paidDate: string | null;
+    paymentReference: string | null;
+    remarks: string | null;
+  }>;
   documents: Array<{ id: string; documentName: string; documentType: string; financialYear: string | null; mimeType: string; sizeBytes: number; createdAt: string }>;
   forms: Array<{ id: string; formType: string; financialYear: string; status: string; submissionDate: string | null }>;
   activity: Array<{ id: string; action: string; summary: string; createdAt: string }>;
@@ -376,10 +397,40 @@ function fromStoredInvestment(value: StoredInvestment): PortfolioInvestment {
       tdsVerificationDate: payout.tdsVerificationDate ?? undefined,
       tdsStatus: payout.tdsStatus,
     })),
+    units: value.units ?? undefined,
+    costPerUnitPaise: value.costPerUnitPaise === null || value.costPerUnitPaise === undefined ? undefined : BigInt(value.costPerUnitPaise),
+    currentPricePerUnitPaise: value.currentPricePerUnitPaise === null || value.currentPricePerUnitPaise === undefined ? undefined : BigInt(value.currentPricePerUnitPaise),
+    valuationDate: value.valuationDate ?? undefined,
+    contributionPaise: value.contributionPaise === null || value.contributionPaise === undefined ? undefined : BigInt(value.contributionPaise),
+    contributionFrequency: (value.contributionFrequency ?? undefined) as PortfolioInvestment["contributionFrequency"],
+    contributionStartDate: value.contributionStartDate ?? undefined,
+    contributionEndDate: value.contributionEndDate ?? undefined,
+    sumAssuredPaise: value.sumAssuredPaise === null || value.sumAssuredPaise === undefined ? undefined : BigInt(value.sumAssuredPaise),
+    policyNumber: value.policyNumber ?? undefined,
+    contributions: (value.contributions ?? []).map((row) => ({
+      id: row.id,
+      dueDate: row.dueDate,
+      financialYear: row.financialYear,
+      amountPaise: BigInt(row.amountPaise),
+      status: resolveContributionStatus(row.status, row.dueDate, row.paidAmountPaise),
+      paidAmountPaise: row.paidAmountPaise === null ? undefined : BigInt(row.paidAmountPaise),
+      paidDate: row.paidDate ?? undefined,
+      paymentReference: row.paymentReference ?? undefined,
+      remarks: row.remarks ?? undefined,
+    })),
     documents: value.documents.map((document) => ({ ...document, financialYear: document.financialYear ?? undefined })),
     forms: value.forms.map((form) => ({ ...form, submissionDate: form.submissionDate ?? undefined })),
     activity: value.activity,
   };
+}
+
+function resolveContributionStatus(status: string, dueDate: string, paidAmountPaise: number | null) {
+  if (paidAmountPaise !== null) return "paid" as const;
+  if (status === "missed") return "missed" as const;
+  const today = new Date().toISOString().slice(0, 10);
+  if (dueDate < today) return "overdue" as const;
+  if (dueDate === today) return "due-today" as const;
+  return "upcoming" as const;
 }
 
 function resolvePayoutStatus(status: PortfolioInvestment["schedule"][number]["status"], dueDate: string) {

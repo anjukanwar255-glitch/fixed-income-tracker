@@ -5,6 +5,7 @@ import {
   activityLogs,
   commitAll,
   documents,
+  contributions,
   forms,
   investments,
   notifications,
@@ -81,6 +82,9 @@ export async function POST(request: Request) {
     await restoreMissing(documents(identity.uid), data.documents);
     await restoreMissing(notifications(identity.uid), data.notifications);
     await restoreMissing(activityLogs(identity.uid), data.activityLogs);
+    // Absent from a backup taken before contributions existed; an older file
+    // restores without them rather than failing.
+    await restoreMissing(contributions(identity.uid), data.contributions ?? []);
 
     const logId = crypto.randomUUID();
     await activityLogs(identity.uid).doc(logId).set({

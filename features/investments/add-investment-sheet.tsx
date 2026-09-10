@@ -13,7 +13,11 @@ import {
   Loader2,
   LockKeyhole,
   ReceiptIndianRupee,
+  PieChart,
+  Repeat,
   ScanLine,
+  ShieldCheck,
+  TrendingUp,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -35,11 +39,11 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { indianBankGroups } from "@/core/data/indian-banks";
-import { investmentTypeCatalog } from "@/core/data/investment-types";
+import { assetClassOf, earnsInterest, holdsUnits, investmentTypeCatalog, providesCover, takesContributions } from "@/core/data/investment-types";
 import { DECLARATION_FORM_TYPE, TDS_RATE_WITHOUT_PAN_BPS, TDS_RATE_WITH_PAN_BPS } from "@/core/tax/declarations";
 import { formatMoney, generatePayoutSchedule, parseRupeesToPaise, previousCouponDate } from "@/core/finance/calculations";
 import { apiFetch, uploadDocumentFile } from "@/lib/firebase-client";
-import type { CompoundingFrequency, DayCountBasis, InterestType, InvestmentType, PayoutFrequency, PortfolioInvestment } from "@/core/models/financial";
+import type { CompoundingFrequency, ContributionFrequency, DayCountBasis, InterestType, InvestmentType, PayoutFrequency, PortfolioInvestment } from "@/core/models/financial";
 
 type Props = {
   open: boolean;
@@ -48,7 +52,15 @@ type Props = {
   initialInvestment?: PortfolioInvestment | null;
 };
 
-const steps = ["Type", "Details", "Interest", "TDS", "Account", "Documents"];
+const BASE_STEPS = ["Type", "Details", "Interest", "TDS", "Account", "Documents"];
+
+function stepLabels(type: InvestmentType) {
+  const labels = [...BASE_STEPS];
+  if (earnsInterest(type)) return labels;
+  labels[2] = holdsUnits(type) ? "Units" : "Cover";
+  labels[3] = "";
+  return labels;
+}
 const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const allowedDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png"]);
 const ISSUER_SUGGESTIONS_ID = "issuer-bank-suggestions";
@@ -102,10 +114,21 @@ const typeIcons: Record<InvestmentType, typeof Landmark> = {
   ncd: ReceiptIndianRupee,
   debenture: FileText,
   "government-security": Landmark,
+  stocks: TrendingUp,
+  "mutual-fund-lumpsum": PieChart,
+  "mutual-fund-sip": Repeat,
+  insurance: ShieldCheck,
+  "term-insurance": ShieldCheck,
   other: FileText,
 };
 
 const investmentTypes = investmentTypeCatalog.map((entry) => ({ ...entry, icon: typeIcons[entry.value] }));
+const typeGroups = Array.from(
+  investmentTypes.reduce((groups, entry) => {
+    (groups.get(entry.group) ?? groups.set(entry.group, []).get(entry.group)!).push(entry);
+    return groups;
+  }, new Map<string, typeof investmentTypes>()),
+);
 
 export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestment }: Props) {
   const [step, setStep] = useState(1);
@@ -146,6 +169,16 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [advisor, setAdvisor] = useState(initialInvestment?.advisorName ?? "");
   const [advisorMobile, setAdvisorMobile] = useState(initialInvestment?.advisorMobile ?? "");
   const [notes, setNotes] = useState(initialInvestment?.notes ?? "");
+  const [units, setUnits] = useState(() => initialInvestment?.units ? String(initialInvestment.units) : "");
+  const [pricePerUnit, setPricePerUnit] = useState(() => initialInvestment?.costPerUnitPaise ? paiseToInput(initialInvestment.costPerUnitPaise) : "");
+  const [currentPrice, setCurrentPrice] = useState(() => initialInvestment?.currentPricePerUnitPaise ? paiseToInput(initialInvestment.currentPricePerUnitPaise) : "");
+  const [contribution, setContribution] = useState(() => initialInvestment?.contributionPaise ? paiseToInput(initialInvestment.contributionPaise) : "");
+  const [contributionFrequency, setContributionFrequency] = useState<ContributionFrequency>(initialInvestment?.contributionFrequency ?? "monthly");
+  const [contributionStart, setContributionStart] = useState(initialInvestment?.contributionStartDate ?? "");
+  const [contributionEnd, setContributionEnd] = useState(initialInvestment?.contributionEndDate ?? "");
+  const [sumAssured, setSumAssured] = useState(() => initialInvestment?.sumAssuredPaise ? paiseToInput(initialInvestment.sumAssuredPaise) : "");
+  const [policyNumber, setPolicyNumber] = useState(initialInvestment?.policyNumber ?? "");
+
   /**
    * Everything to be filed with this investment. All of it is stored, not just
    * one chosen document: a bond is described by its deal sheet and its
@@ -369,17 +402,40 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   }, [draft]);
   const firstProjection = schedule[0];
 
+  const lent = earnsInterest(type);
+  const unitPriced = holdsUnits(type);
+  const recurring = takesContributions(type);
+  const covered = providesCover(type);
+  const steps = stepLabels(type);
+  /** TDS on interest cannot arise where no interest is earned. */
+  const skipsTds = !lent;
+
   const next = () => {
     if (step === 2 && (!name.trim() || !issuer.trim() || parseRupeesToPaise(amount) <= 0n)) {
       toast.error("Add the investment name, issuer and a valid amount");
       return;
     }
-    const invalidFirstPayout = frequency !== "on-maturity" && (!firstPayoutDate || firstPayoutDate < investmentDate || firstPayoutDate > maturityDate);
-    if (step === 3 && (!rate || !maturityDate || maturityDate <= investmentDate || invalidFirstPayout)) {
-      toast.error("Check the interest rate and payout dates");
+    if (step === 3 && lent) {
+      const invalidFirstPayout = frequency !== "on-maturity" && (!firstPayoutDate || firstPayoutDate < investmentDate || firstPayoutDate > maturityDate);
+      if (!rate || !maturityDate || maturityDate <= investmentDate || invalidFirstPayout) {
+        toast.error("Check the interest rate and payout dates");
+        return;
+      }
+    }
+    if (step === 3 && unitPriced && (!units || Number(units) <= 0)) {
+      toast.error("Enter how many units or shares are held");
       return;
     }
-    setStep((current) => Math.min(6, current + 1));
+    if (step === 3 && recurring && (parseRupeesToPaise(contribution) <= 0n || !contributionStart)) {
+      toast.error(covered ? "Enter the premium and when it starts" : "Enter the instalment and when it starts");
+      return;
+    }
+    setStep((current) => Math.min(6, current + 1 + (current + 1 === 4 && skipsTds ? 1 : 0)));
+  };
+
+  const back = () => {
+    if (step === 1) { onOpenChange(false); return; }
+    setStep((current) => Math.max(1, current - 1 - (current - 1 === 4 && skipsTds ? 1 : 0)));
   };
 
   const save = async () => {
@@ -423,6 +479,16 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
       id: initialInvestment?.id ?? "",
       status: initialInvestment?.status ?? "active",
       schedule,
+      contributions: initialInvestment?.contributions ?? [],
+      units: units ? Number(units) : undefined,
+      costPerUnitPaise: pricePerUnit ? parseRupeesToPaise(pricePerUnit) : undefined,
+      currentPricePerUnitPaise: currentPrice ? parseRupeesToPaise(currentPrice) : undefined,
+      contributionPaise: contribution ? parseRupeesToPaise(contribution) : undefined,
+      contributionFrequency: takesContributions(type) ? contributionFrequency : undefined,
+      contributionStartDate: contributionStart || undefined,
+      contributionEndDate: contributionEnd || undefined,
+      sumAssuredPaise: sumAssured ? parseRupeesToPaise(sumAssured) : undefined,
+      policyNumber: policyNumber || undefined,
       documents: initialInvestment?.documents ?? [],
       forms: initialInvestment?.forms ?? [],
       activity: initialInvestment?.activity ?? [],
@@ -451,6 +517,9 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     setNominee(""); setBroker(""); setAdvisor(""); setAdvisorMobile(""); setNotes(""); setAttachments([]);
     setFaceValue(""); setInterestStartDate(""); setDpId(""); setClientId(""); setOrderReference("");
     setDealSheetFile(null); setScheduleFile(null); setScannedSchedule([]);
+    setUnits(""); setPricePerUnit(""); setCurrentPrice(""); setContribution("");
+    setContributionFrequency("monthly"); setContributionStart(""); setContributionEnd("");
+    setSumAssured(""); setPolicyNumber("");
   };
 
   return (
@@ -462,7 +531,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
             <div><SheetTitle>{initialInvestment ? "Edit investment" : "Add investment"}</SheetTitle><SheetDescription>Step {step} of 6 · {steps[step - 1]}</SheetDescription></div>
           </div>
           <div className="stepper" aria-label={`Step ${step} of 6`}>
-            {steps.map((label, index) => <span className={index + 1 <= step ? "complete" : ""} key={label}><i>{index + 1 < step ? <Check /> : index + 1}</i><small>{label}</small></span>)}
+            {steps.map((label, index) => label && <span className={index + 1 <= step ? "complete" : ""} key={label}><i>{index + 1 < step ? <Check /> : index + 1}</i><small>{label}</small></span>)}
           </div>
         </SheetHeader>
 
@@ -470,13 +539,20 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
           {step === 1 && (
             <div className="form-section">
               <FormHeading title="What are you investing in?" description="Choose the closest type. You can change it later with an audit entry." />
-              <RadioGroup value={type} onValueChange={(value) => setType(value as InvestmentType)} className="type-option-grid">
-                {investmentTypes.map(({ value, title, note, icon: Icon }) => (
-                  <label className="type-option" key={value} data-selected={type === value}>
-                    <RadioGroupItem value={value} className="sr-only" />
-                    <span><Icon aria-hidden="true" /></span><b>{title}</b><small>{note}</small>
-                    {type === value && <Check className="selected-check" aria-hidden="true" />}
-                  </label>
+              <RadioGroup value={type} onValueChange={(value) => setType(value as InvestmentType)}>
+                {typeGroups.map(([group, entries]) => (
+                  <div className="type-group" key={group}>
+                    <p className="type-group-label">{group}</p>
+                    <div className="type-option-grid">
+                      {entries.map(({ value, title, note, icon: Icon }) => (
+                        <label className="type-option" key={value} data-selected={type === value}>
+                          <RadioGroupItem value={value} className="sr-only" />
+                          <span><Icon aria-hidden="true" /></span><b>{title}</b><small>{note}</small>
+                          {type === value && <Check className="selected-check" aria-hidden="true" />}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </RadioGroup>
             </div>
@@ -542,7 +618,73 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
             </div>
           )}
 
-          {step === 3 && (
+          {step === 3 && unitPriced && (
+            <div className="form-section">
+              <FormHeading title="Units & price" description="What is held, what it cost, and what it is worth now." />
+              <div className="field-grid">
+                <Field label="Units / shares held" value={units} setValue={(value) => setUnits(value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="120.5" />
+                <Field label={assetClassOf(type) === "equity" ? "Buy price per share (₹)" : "Purchase NAV (₹)"} value={pricePerUnit} setValue={setPricePerUnit} inputMode="decimal" placeholder="0.00" />
+                <Field label={assetClassOf(type) === "equity" ? "Current price per share (₹)" : "Current NAV (₹)"} value={currentPrice} setValue={setCurrentPrice} inputMode="decimal" placeholder="Optional" />
+                {recurring && <Field label="SIP instalment (₹)" value={contribution} setValue={setContribution} inputMode="decimal" placeholder="5,000" />}
+                {recurring && (
+                  <div className="form-field">
+                    <Label>Instalment frequency</Label>
+                    <Select value={contributionFrequency} onValueChange={(value) => setContributionFrequency(value as ContributionFrequency)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="quarterly">Quarterly</SelectItem>
+                        <SelectItem value="half-yearly">Half-yearly</SelectItem>
+                        <SelectItem value="yearly">Yearly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {recurring && <Field label="First instalment date" value={contributionStart} setValue={setContributionStart} type="date" />}
+                {recurring && (
+                  <div className="form-field">
+                    <Label htmlFor="field-contribution-end">Last instalment <span className="field-optional">optional</span></Label>
+                    <Input id="field-contribution-end" type="date" value={contributionEnd} onChange={(event) => setContributionEnd(event.target.value)} min={contributionStart || undefined} />
+                    <p className="field-note">Leave blank for an open-ended SIP; ten years of instalments are projected so you can still track them.</p>
+                  </div>
+                )}
+              </div>
+              <p className="review-disclaimer">Current price is whatever you last entered — the app does not fetch market prices. Update it from the investment&apos;s screen whenever you want the value refreshed.</p>
+            </div>
+          )}
+
+          {step === 3 && covered && (
+            <div className="form-section">
+              <FormHeading title="Cover & premium" description="What the policy pays out, and what it costs to keep." />
+              <div className="field-grid">
+                <Field label="Sum assured (₹)" value={sumAssured} setValue={setSumAssured} inputMode="decimal" placeholder="50,00,000" />
+                <Field label="Policy number" value={policyNumber} setValue={setPolicyNumber} placeholder="As printed on the policy" maxLength={80} />
+                <Field label="Premium (₹)" value={contribution} setValue={setContribution} inputMode="decimal" placeholder="25,000" />
+                <div className="form-field">
+                  <Label>Premium frequency</Label>
+                  <Select value={contributionFrequency} onValueChange={(value) => setContributionFrequency(value as ContributionFrequency)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                      <SelectItem value="quarterly">Quarterly</SelectItem>
+                      <SelectItem value="half-yearly">Half-yearly</SelectItem>
+                      <SelectItem value="yearly">Yearly</SelectItem>
+                      <SelectItem value="single">Single premium</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Field label="First premium date" value={contributionStart} setValue={setContributionStart} type="date" />
+                <Field label="Last premium date" value={contributionEnd} setValue={setContributionEnd} type="date" min={contributionStart || undefined} />
+                <Field label="Policy maturity date" value={maturityDate} setValue={setMaturityDate} type="date" />
+                {type === "insurance" && <Field label="Maturity benefit (₹)" value={maturityAmount} setValue={setMaturityAmount} inputMode="decimal" placeholder="Optional" />}
+              </div>
+              <p className="review-disclaimer">{type === "term-insurance"
+                ? "Term cover pays only on a claim, so there is no maturity value to record."
+                : "Every premium is tracked separately, so a missed one shows up before the policy lapses."}</p>
+            </div>
+          )}
+
+          {step === 3 && lent && (
             <div className="form-section">
               <FormHeading title="Interest schedule" description="We will generate an editable expected payout schedule." />
               <div className="field-grid">
@@ -730,7 +872,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
         </div>
 
         <SheetFooter className="add-sheet-footer">
-          <Button variant="outline" onClick={() => step === 1 ? onOpenChange(false) : setStep(step - 1)}>{step > 1 && <ChevronLeft />}{step === 1 ? "Cancel" : "Back"}</Button>
+          <Button variant="outline" onClick={back}>{step > 1 && <ChevronLeft />}{step === 1 ? "Cancel" : "Back"}</Button>
           {step < 6 ? <Button onClick={next}>Continue <ChevronRight /></Button> : <Button onClick={() => void save()} disabled={saving}><Check /> {saving ? "Saving…" : "Save investment"}</Button>}
         </SheetFooter>
       </SheetContent>
@@ -830,6 +972,16 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
         // Sent only when the documents supplied one; otherwise the server
         // projects the schedule from the rate as before.
         repaymentSchedule: schedule.length ? schedule : undefined,
+        units: investment.units,
+        costPerUnitPaise: investment.costPerUnitPaise === undefined ? undefined : Number(investment.costPerUnitPaise),
+        currentPricePerUnitPaise: investment.currentPricePerUnitPaise === undefined ? undefined : Number(investment.currentPricePerUnitPaise),
+        valuationDate: investment.currentPricePerUnitPaise === undefined ? undefined : new Date().toISOString().slice(0, 10),
+        contributionPaise: investment.contributionPaise === undefined ? undefined : Number(investment.contributionPaise),
+        contributionFrequency: investment.contributionFrequency,
+        contributionStartDate: investment.contributionStartDate,
+        contributionEndDate: investment.contributionEndDate,
+        sumAssuredPaise: investment.sumAssuredPaise === undefined ? undefined : Number(investment.sumAssuredPaise),
+        policyNumber: investment.policyNumber,
         paymentMode: extra.paymentMode,
         nominee: extra.nominee,
         brokerPlatform: extra.broker,

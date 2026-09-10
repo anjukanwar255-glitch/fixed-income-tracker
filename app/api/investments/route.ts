@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import { calculateFinancialYear, generatePayoutSchedule, scheduleFromDocument } from "@/core/finance/calculations";
+import { generateContributionSchedule } from "@/core/finance/contributions";
+import { earnsInterest } from "@/core/data/investment-types";
 import type { InvestmentDraft } from "@/core/models/financial";
 import { requireEntitlement } from "@/lib/billing";
 import { createUserBackup } from "@/lib/backups";
@@ -8,6 +10,7 @@ import {
   activityLogs,
   type BatchOperation,
   commitAll,
+  contributions,
   documents,
   firstDoc,
   forms,
@@ -31,18 +34,30 @@ const investmentInput = z.object({
   investmentNumber: z.string().trim().max(80).default(""),
   principalPaise: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   faceValuePaise: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
-  interestRateBps: z.number().int().min(0).max(100_000),
+  interestRateBps: z.number().int().min(0).max(100_000).default(0),
   interestType: z.enum(["simple", "compound", "cumulative"]),
   compoundingFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly"]).default("quarterly"),
   dayCountBasis: z.enum(["actual-365", "actual-actual", "30-360"]).default("actual-365"),
-  payoutFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly", "on-maturity", "custom"]),
+  payoutFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly", "on-maturity", "custom"]).default("on-maturity"),
   investmentDate: z.string().date(),
   interestStartDate: z.string().date().optional(),
-  firstPayoutDate: z.string().date(),
-  maturityDate: z.string().date(),
+  firstPayoutDate: z.string().date().optional().or(z.literal("")),
+  maturityDate: z.string().date().optional().or(z.literal("")),
   expectedMaturityPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
-  tdsApplicable: z.boolean(),
-  expectedTdsRateBps: z.number().int().min(0).max(10_000),
+  tdsApplicable: z.boolean().default(false),
+  expectedTdsRateBps: z.number().int().min(0).max(10_000).default(0),
+  /** Unit-priced holdings; absent for anything lent at a rate. */
+  units: z.number().nonnegative().max(1e12).optional(),
+  costPerUnitPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  currentPricePerUnitPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  valuationDate: z.string().date().optional(),
+  /** Paid in over time — a SIP instalment or an insurance premium. */
+  contributionPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  contributionFrequency: z.enum(["monthly", "quarterly", "half-yearly", "yearly", "single"]).optional(),
+  contributionStartDate: z.string().date().optional(),
+  contributionEndDate: z.string().date().optional(),
+  sumAssuredPaise: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  policyNumber: z.string().trim().max(80).optional(),
   panLinked: z.boolean().default(false),
   declarationApplicable: z.boolean().default(false),
   bankName: z.string().trim().max(100).regex(/^[^\d]*$/, "Bank name cannot contain numbers").optional(),
@@ -69,17 +84,20 @@ const investmentInput = z.object({
   advisorMobile: z.string().trim().regex(/^[6-9]\d{9}$/, "Enter a 10-digit mobile number").optional().or(z.literal("")),
   notes: z.string().trim().max(1000).optional(),
 }).superRefine((value, context) => {
-  if (value.maturityDate <= value.investmentDate) {
+  if (value.maturityDate && value.maturityDate <= value.investmentDate) {
     context.addIssue({ code: "custom", path: ["maturityDate"], message: "Maturity must be after investment date" });
   }
-  if (value.payoutFrequency !== "custom" && value.firstPayoutDate < value.investmentDate) {
+  if (value.payoutFrequency !== "custom" && value.firstPayoutDate && value.firstPayoutDate < value.investmentDate) {
     context.addIssue({ code: "custom", path: ["firstPayoutDate"], message: "First payout cannot be before investment" });
   }
-  if (value.payoutFrequency !== "on-maturity" && value.firstPayoutDate > value.maturityDate) {
+  if (value.payoutFrequency !== "on-maturity" && value.firstPayoutDate && value.maturityDate && value.firstPayoutDate > value.maturityDate) {
     context.addIssue({ code: "custom", path: ["firstPayoutDate"], message: "First payout cannot be after maturity" });
   }
-  if (value.interestType !== "simple" && value.payoutFrequency !== "on-maturity") {
+  if (value.interestRateBps > 0 && value.interestType !== "simple" && value.payoutFrequency !== "on-maturity") {
     context.addIssue({ code: "custom", path: ["payoutFrequency"], message: "Compound and cumulative investments pay on maturity" });
+  }
+  if (value.contributionEndDate && value.contributionStartDate && value.contributionEndDate < value.contributionStartDate) {
+    context.addIssue({ code: "custom", path: ["contributionEndDate"], message: "The last instalment cannot fall before the first" });
   }
 });
 
@@ -96,9 +114,9 @@ export async function GET() {
   if (paywall) return paywall;
 
   try {
-    // Issued together: these are seven independent network round trips now,
+    // Issued together: these are eight independent network round trips now,
     // where the D1 versions were sequential local reads.
-    const [rows, schedules, transactions, tds, documentRows, formRows, activities] = await Promise.all([
+    const [rows, schedules, transactions, tds, documentRows, formRows, activities, contributionRows] = await Promise.all([
       listDocs(investments(owner.id).where("deletedAt", "==", null).orderBy("createdAt", "desc")),
       listDocs(payoutSchedules(owner.id).where("deletedAt", "==", null).orderBy("dueDate", "asc")),
       listDocs(payoutTransactions(owner.id).where("deletedAt", "==", null).orderBy("createdAt", "desc")),
@@ -106,6 +124,7 @@ export async function GET() {
       listDocs(documents(owner.id).where("deletedAt", "==", null).orderBy("createdAt", "desc")),
       listDocs(forms(owner.id).where("deletedAt", "==", null).orderBy("createdAt", "desc")),
       listDocs(activityLogs(owner.id).orderBy("createdAt", "desc")),
+      listDocs(contributions(owner.id).where("deletedAt", "==", null).orderBy("dueDate", "asc")),
     ]);
 
     const latestTransaction = new Map<string, (typeof transactions)[number]>();
@@ -140,6 +159,7 @@ export async function GET() {
             tdsStatus: tdsRecord?.status ?? "not-verified",
           };
         }),
+        contributions: contributionRows.filter((row) => row.investmentId === investment.id),
         documents: documentRows.filter((document) => document.investmentId === investment.id),
         forms: formRows.filter((form) => form.investmentId === investment.id),
         activity: activities.filter((activity) => activity.investmentId === investment.id),
@@ -184,14 +204,24 @@ export async function POST(request: Request) {
     compoundingFrequency: input.compoundingFrequency,
     dayCountBasis: input.dayCountBasis,
     payoutFrequency: input.payoutFrequency,
-    firstPayoutDate: input.firstPayoutDate,
-    maturityDate: input.maturityDate,
+    firstPayoutDate: input.firstPayoutDate ?? "",
+    maturityDate: input.maturityDate ?? "",
     expectedMaturityPaise: input.expectedMaturityPaise ? BigInt(input.expectedMaturityPaise) : undefined,
     tdsApplicable: input.tdsApplicable,
     expectedTdsRateBps: input.expectedTdsRateBps,
   };
+  // Only a holding lent at a rate has payouts to project. A stock or a policy
+  // has none, and generating an empty-but-present schedule for it would put
+  // rows into every payout total that nothing will ever pay.
+  const lent = earnsInterest(input.investmentType as InvestmentDraft["type"]);
+  const contributionRows = generateContributionSchedule({
+    contributionPaise: input.contributionPaise ? BigInt(input.contributionPaise) : undefined,
+    contributionFrequency: input.contributionFrequency,
+    contributionStartDate: input.contributionStartDate,
+    contributionEndDate: input.contributionEndDate,
+  });
   const documentRows = input.repaymentSchedule?.length ? input.repaymentSchedule : null;
-  const schedule = documentRows
+  const schedule = !lent ? [] : documentRows
     ? scheduleFromDocument(documentRows.map((row) => ({
         dueDate: row.dueDate,
         interestPaise: BigInt(row.interestPaise),
@@ -239,8 +269,8 @@ export async function POST(request: Request) {
         payoutFrequency: input.payoutFrequency,
         investmentDate: input.investmentDate,
         interestStartDate: input.interestStartDate ?? null,
-        firstPayoutDate: input.firstPayoutDate,
-        maturityDate: input.maturityDate,
+        firstPayoutDate: input.firstPayoutDate ?? "",
+        maturityDate: input.maturityDate ?? "",
         expectedMaturityPaise: input.expectedMaturityPaise ?? null,
         tdsApplicable: input.tdsApplicable,
         expectedTdsRateBps: input.expectedTdsRateBps,
@@ -249,6 +279,16 @@ export async function POST(request: Request) {
         bankName: input.bankName ?? null,
         ifscCode: input.ifscCode || null,
         accountNumber: input.accountNumber || null,
+        units: input.units ?? null,
+        costPerUnitPaise: input.costPerUnitPaise ?? null,
+        currentPricePerUnitPaise: input.currentPricePerUnitPaise ?? null,
+        valuationDate: input.valuationDate ?? null,
+        contributionPaise: input.contributionPaise ?? null,
+        contributionFrequency: input.contributionFrequency ?? null,
+        contributionStartDate: input.contributionStartDate ?? null,
+        contributionEndDate: input.contributionEndDate ?? null,
+        sumAssuredPaise: input.sumAssuredPaise ?? null,
+        policyNumber: input.policyNumber || null,
         paymentMode: input.paymentMode ?? null,
         nominee: input.nominee ?? null,
         brokerPlatform: input.brokerPlatform ?? null,
@@ -279,6 +319,26 @@ export async function POST(request: Request) {
           expectedNetPaise: Number(payout.expectedNetPaise),
           status: payout.status,
           source: scheduleSource,
+          revision: 1,
+          createdAt,
+          updatedAt: createdAt,
+          deletedAt: null,
+        });
+      }),
+      ...contributionRows.map((row) => {
+        const contributionId = crypto.randomUUID();
+        return setOp(contributions(owner.id).doc(contributionId), {
+          id: contributionId,
+          investmentId,
+          dueDate: row.dueDate,
+          financialYear: row.financialYear,
+          amountPaise: Number(row.amountPaise),
+          status: row.status,
+          paidAmountPaise: null,
+          paidDate: null,
+          paymentReference: null,
+          remarks: null,
+          source: "generated",
           revision: 1,
           createdAt,
           updatedAt: createdAt,

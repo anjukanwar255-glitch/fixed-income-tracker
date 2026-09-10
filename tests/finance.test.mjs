@@ -10,6 +10,7 @@ const finance = await vite.ssrLoadModule("/core/finance/calculations.ts");
 const files = await vite.ssrLoadModule("/lib/file-validation.ts");
 const tax = await vite.ssrLoadModule("/core/tax/declarations.ts");
 const identity = await vite.ssrLoadModule("/core/identity/user-reference.ts");
+const contributions = await vite.ssrLoadModule("/core/finance/contributions.ts");
 
 test("uses exact date accrual for a complete non-leap year", () => {
   assert.equal(finance.calculateInterestForDates(10_000_000n, 750, "2025-01-01", "2026-01-01", "actual-365"), 750_000n);
@@ -276,4 +277,66 @@ test("an account reference carries the opening year and the last four of the uid
 test("a reference is refused rather than built from an unusable uid or date", () => {
   assert.equal(identity.formatUserReference("abc", "2026-09-10T00:00:00.000Z"), null);
   assert.equal(identity.formatUserReference("k3Jd8fFhZ2aQ", ""), null);
+});
+
+test("a SIP runs from its start date on the chosen interval", () => {
+  const rows = contributions.generateContributionSchedule({
+    contributionPaise: 500_000n,
+    contributionFrequency: "monthly",
+    contributionStartDate: "2026-04-10",
+    contributionEndDate: "2026-08-10",
+  });
+  assert.deepEqual(rows.map((row) => row.dueDate), [
+    "2026-04-10", "2026-05-10", "2026-06-10", "2026-07-10", "2026-08-10",
+  ]);
+  assert.ok(rows.every((row) => row.amountPaise === 500_000n));
+  assert.equal(rows[0].financialYear, finance.calculateFinancialYear("2026-04-10"));
+});
+
+test("a yearly premium keeps a month-end date across a leap year", () => {
+  const rows = contributions.generateContributionSchedule({
+    contributionPaise: 2_500_000n,
+    contributionFrequency: "yearly",
+    contributionStartDate: "2027-02-28",
+    contributionEndDate: "2029-03-01",
+  });
+  assert.deepEqual(rows.map((row) => row.dueDate), ["2027-02-28", "2028-02-29", "2029-02-28"]);
+});
+
+test("a single premium is still one row, so it can be marked paid", () => {
+  const rows = contributions.generateContributionSchedule({
+    contributionPaise: 10_000_000n,
+    contributionFrequency: "single",
+    contributionStartDate: "2026-06-01",
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].dueDate, "2026-06-01");
+});
+
+test("an open-ended SIP is projected rather than left empty", () => {
+  const rows = contributions.generateContributionSchedule({
+    contributionPaise: 100_000n,
+    contributionFrequency: "monthly",
+    contributionStartDate: "2026-04-01",
+  });
+  assert.equal(rows.length, 121);
+  assert.equal(rows.at(-1).dueDate, "2036-04-01");
+});
+
+test("nothing is scheduled without an amount, a frequency or a start", () => {
+  assert.deepEqual(contributions.generateContributionSchedule({}), []);
+  assert.deepEqual(contributions.generateContributionSchedule({ contributionPaise: 0n, contributionFrequency: "monthly", contributionStartDate: "2026-04-01" }), []);
+  assert.deepEqual(contributions.generateContributionSchedule({ contributionPaise: 100n, contributionStartDate: "2026-04-01" }), []);
+});
+
+test("only paid instalments count as money in", () => {
+  const totals = contributions.contributionTotals([
+    { financialYear: "2026-27", amountPaise: 100n, status: "paid", paidAmountPaise: 100n },
+    { financialYear: "2026-27", amountPaise: 100n, status: "overdue" },
+    { financialYear: "2025-26", amountPaise: 100n, status: "paid", paidAmountPaise: 100n },
+  ], "2026-27");
+  assert.equal(totals.scheduled, 200n);
+  assert.equal(totals.paid, 100n);
+  assert.equal(totals.paidCount, 1);
+  assert.equal(totals.missed, 1);
 });

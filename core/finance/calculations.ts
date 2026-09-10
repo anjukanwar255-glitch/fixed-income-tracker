@@ -322,12 +322,12 @@ function compoundsPerYear(frequency: CompoundingFrequency) {
   return values[frequency];
 }
 
-function parseIsoDate(value: string) {
+export function parseIsoDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day));
 }
 
-function toIsoDate(value: Date) {
+export function toIsoDate(value: Date) {
   return value.toISOString().slice(0, 10);
 }
 
@@ -337,7 +337,7 @@ function isMonthEnd(value: Date) {
   ).getUTCDate();
 }
 
-function addMonthsPreservingEnd(value: Date, months: number) {
+export function addMonthsPreservingEnd(value: Date, months: number) {
   const sourceDay = value.getUTCDate();
   const targetMonthStart = new Date(Date.UTC(
     value.getUTCFullYear(),

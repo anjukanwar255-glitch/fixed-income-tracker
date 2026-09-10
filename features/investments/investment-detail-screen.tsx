@@ -31,6 +31,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { calculateFinancialYear, calculateInterest, formatMoney, parseRupeesToPaise } from "@/core/finance/calculations";
 import { DECLARATION_FORM_TYPE, declarationPending } from "@/core/tax/declarations";
+import { contributionTotals } from "@/core/finance/contributions";
+import { earnsInterest, holdsUnits, providesCover } from "@/core/data/investment-types";
 import { apiFetch, downloadDocument, uploadDocumentFile } from "@/lib/firebase-client";
 import type { PayoutProjection, PortfolioInvestment } from "@/core/models/financial";
 
@@ -61,6 +63,11 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
   const [verificationDate, setVerificationDate] = useState(todayIso());
   const [tdsRemarks, setTdsRemarks] = useState("");
   const [savingTds, setSavingTds] = useState(false);
+  const [contributionDialog, setContributionDialog] = useState<{ entry: PortfolioInvestment["contributions"][number]; outcome: "paid" | "missed" } | null>(null);
+  const [paidAmount, setPaidAmount] = useState("");
+  const [paidDate, setPaidDate] = useState(todayIso());
+  const [paidReference, setPaidReference] = useState("");
+  const [savingContribution, setSavingContribution] = useState(false);
   const [declarationOpen, setDeclarationOpen] = useState(false);
   const [declarationStatus, setDeclarationStatus] = useState("submitted");
   const [declarationDate, setDeclarationDate] = useState(todayIso());
@@ -69,6 +76,13 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
   const [uploading, setUploading] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
+
+  const lent = earnsInterest(investment.type);
+  const unitPriced = holdsUnits(investment.type);
+  const covered = providesCover(investment.type);
+  const contributions = investment.contributions ?? [];
+  const totals = contributionTotals(contributions);
+  const contributionLabel = covered ? "Premiums" : "Instalments";
 
   const annualInterest = calculateInterest(investment.principalPaise, investment.annualRateBps);
   const receivedSchedules = investment.schedule.filter((item) => item.status === "received" || item.status === "partial-received");
@@ -82,17 +96,87 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
   const expectedTdsTotal = investment.schedule.reduce((sum, item) => sum + item.expectedTdsPaise, 0n);
   const reflectedTdsTotal = investment.schedule.reduce((sum, item) => sum + (item.reflectedAmountPaise ?? 0n), 0n);
   const nextPayout = investment.schedule.find((item) => !["received", "partial-received"].includes(item.status));
-  const summary = [
-    ["Principal", formatMoney(investment.principalPaise)],
-    ["Annual interest", formatMoney(annualInterest)],
-    ["Interest received", formatMoney(grossReceived)],
-    ["Pending interest", formatMoney(annualInterest > grossReceived ? annualInterest - grossReceived : 0n)],
-    ["Principal repaid", formatMoney(principalReceived)],
-    ["TDS deducted", formatMoney(actualTdsTotal)],
-    ["Net interest", formatMoney(netReceived)],
-    ["Next payout", nextPayout ? formatDate(nextPayout.dueDate) : "—"],
-    ["Maturity amount", formatMoney(investment.expectedMaturityPaise ?? investment.principalPaise)],
-  ];
+  /*
+   * A holding that earns no interest has no interest to report. Showing the
+   * same nine tiles for a stock would fill most of them with zeroes and a
+   * maturity amount it will never reach — which reads as a broken record
+   * rather than as a different kind of holding.
+   */
+  const marketValue = unitPriced && investment.units && investment.currentPricePerUnitPaise !== undefined
+    ? BigInt(Math.round(investment.units * Number(investment.currentPricePerUnitPaise)))
+    : null;
+  const nextDue = contributions.find((entry) => entry.status !== "paid" && entry.status !== "missed");
+
+  const summary = unitPriced
+    ? [
+      ["Invested", formatMoney(investment.principalPaise)],
+      ["Units held", investment.units ? String(investment.units) : "—"],
+      ["Cost per unit", investment.costPerUnitPaise === undefined ? "—" : formatMoney(investment.costPerUnitPaise, 2)],
+      ["Current price", investment.currentPricePerUnitPaise === undefined ? "Not entered" : formatMoney(investment.currentPricePerUnitPaise, 2)],
+      ["Current value", marketValue === null ? "Enter a price" : formatMoney(marketValue)],
+      ["Gain / loss", marketValue === null ? "—" : formatMoney(marketValue - investment.principalPaise)],
+      ["Paid in so far", formatMoney(totals.paid > 0n ? totals.paid : investment.principalPaise)],
+      ["Next instalment", nextDue ? formatDate(nextDue.dueDate) : "—"],
+      ["Valued on", investment.valuationDate ? formatDate(investment.valuationDate) : "—"],
+    ]
+    : covered
+      ? [
+        ["Sum assured", investment.sumAssuredPaise === undefined ? "—" : formatMoney(investment.sumAssuredPaise)],
+        ["Premium", investment.contributionPaise === undefined ? "—" : formatMoney(investment.contributionPaise)],
+        ["Premiums paid", formatMoney(totals.paid)],
+        ["Premiums scheduled", formatMoney(totals.scheduled)],
+        ["Missed", String(totals.missed)],
+        ["Next premium", nextDue ? formatDate(nextDue.dueDate) : "—"],
+        ["Policy number", investment.policyNumber ?? "—"],
+        ["Maturity", investment.maturityDate ? formatDate(investment.maturityDate) : "No maturity value"],
+        ["Maturity benefit", investment.expectedMaturityPaise === undefined ? "—" : formatMoney(investment.expectedMaturityPaise)],
+      ]
+      : [
+        ["Principal", formatMoney(investment.principalPaise)],
+        ["Annual interest", formatMoney(annualInterest)],
+        ["Interest received", formatMoney(grossReceived)],
+        ["Pending interest", formatMoney(annualInterest > grossReceived ? annualInterest - grossReceived : 0n)],
+        ["Principal repaid", formatMoney(principalReceived)],
+        ["TDS deducted", formatMoney(actualTdsTotal)],
+        ["Net interest", formatMoney(netReceived)],
+        ["Next payout", nextPayout ? formatDate(nextPayout.dueDate) : "—"],
+        ["Maturity amount", formatMoney(investment.expectedMaturityPaise ?? investment.principalPaise)],
+      ];
+
+
+  const openContribution = (entry: PortfolioInvestment["contributions"][number], outcome: "paid" | "missed") => {
+    setContributionDialog({ entry, outcome });
+    setPaidAmount(outcome === "paid" ? paiseToInput(entry.amountPaise) : "");
+    setPaidDate(todayIso());
+    setPaidReference("");
+  };
+
+  const saveContribution = async () => {
+    if (!contributionDialog) return;
+    setSavingContribution(true);
+    try {
+      const response = await apiFetch("/api/contributions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contributionId: contributionDialog.entry.id,
+          outcome: contributionDialog.outcome,
+          paidAmountPaise: contributionDialog.outcome === "paid" ? Number(parseRupeesToPaise(paidAmount)) : undefined,
+          paidDate: contributionDialog.outcome === "paid" ? paidDate : undefined,
+          paymentReference: paidReference || undefined,
+        }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "The payment could not be saved");
+      await onDataChanged();
+      setContributionDialog(null);
+      toast.success(contributionDialog.outcome === "paid" ? "Payment recorded" : "Marked as missed");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The payment could not be saved");
+    } finally {
+      setSavingContribution(false);
+    }
+  };
 
   const currentFinancialYear = calculateFinancialYear(todayIso());
   const declarationDue = declarationPending(investment, currentFinancialYear);
@@ -284,7 +368,14 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
 
       <Tabs defaultValue="overview" className="detail-tabs">
         <TabsList variant="line" className="detail-tab-list scrollbar-none">
-          {[["overview", "Overview"], ["payouts", "Payouts"], ["tds", "TDS"], ["documents", "Documents"], ["forms", "Forms"], ["activity", "Activity"]].map(([value, label]) => <TabsTrigger value={value} key={value}>{label}</TabsTrigger>)}
+          {[
+            ["overview", "Overview"],
+            ...(lent ? [["payouts", "Payouts"], ["tds", "TDS"]] : []),
+            ...(contributions.length ? [["contributions", contributionLabel]] : []),
+            ["documents", "Documents"],
+            ...(lent ? [["forms", "Forms"]] : []),
+            ["activity", "Activity"],
+          ].map(([value, label]) => <TabsTrigger value={value} key={value}>{label}</TabsTrigger>)}
         </TabsList>
 
         <TabsContent value="overview" className="detail-tab-content">
@@ -331,6 +422,33 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
           <Button variant="outline" disabled={uploading} onClick={() => uploadRef.current?.click()}><Upload /> {uploading ? "Uploading…" : "Upload document"}</Button>
         </TabsContent>
 
+        <TabsContent value="contributions" className="detail-tab-content">
+          <SectionTitle title={contributionLabel} description={covered ? "A missed premium lapses the policy, so each one is tracked" : "Each instalment, and whether it actually went"} />
+          <div className="tds-metric-grid">
+            <div><span>Scheduled</span><strong>{formatMoney(totals.scheduled)}</strong><small>{contributions.length} in total</small></div>
+            <div><span>Paid so far</span><strong>{formatMoney(totals.paid)}</strong><small>{totals.paidCount} recorded</small></div>
+            <div className={totals.missed > 0 ? "danger" : ""}><span>Missed or overdue</span><strong>{totals.missed}</strong><small>{totals.missed > 0 ? "Needs attention" : "Nothing outstanding"}</small></div>
+          </div>
+          <div className="detail-payout-list">
+            {contributions.map((entry) => {
+              const settled = entry.status === "paid";
+              return (
+                <div className="detail-payout-row" key={entry.id}>
+                  <span className={`payout-date-icon ${settled ? "received" : ""}`}><CalendarDays aria-hidden="true" /></span>
+                  <span className="detail-payout-date"><b>{formatDate(entry.dueDate)}</b><small>{entry.financialYear}</small></span>
+                  <span><small>Due</small><b>{formatMoney(entry.amountPaise)}</b></span>
+                  <span><small>{settled ? "Paid" : "Status"}</small><b>{settled ? formatMoney(entry.paidAmountPaise ?? entry.amountPaise) : labelType(entry.status)}</b></span>
+                  {settled
+                    ? <Badge className="status-received"><CheckCircle2 /> Paid</Badge>
+                    : entry.status === "upcoming"
+                      ? <Badge className="status-upcoming"><Clock3 /> Upcoming</Badge>
+                      : <span className="payout-actions"><Button size="sm" onClick={() => openContribution(entry, "paid")}>Paid</Button><Button size="sm" variant="outline" onClick={() => openContribution(entry, "missed")}>Missed</Button></span>}
+                </div>
+              );
+            })}
+          </div>
+        </TabsContent>
+
         <TabsContent value="forms" className="detail-tab-content">
           <SectionTitle title="Forms & declarations" description={`${DECLARATION_FORM_TYPE} is filed for each financial year separately`} />
           {declarationDue && (
@@ -375,6 +493,25 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
           <FormField label="Remarks (optional)" id="payout-remarks"><Textarea id="payout-remarks" value={payoutRemarks} onChange={(event) => setPayoutRemarks(event.target.value)} /></FormField>
           {payoutDialog?.outcome === "received" && parseRupeesToPaise(receivedAmount) !== payoutDialog.payout.expectedNetPaise && <div className="mismatch-note"><AlertTriangle /> Expected {formatMoney(payoutDialog.payout.expectedNetPaise)}; entered {formatMoney(parseRupeesToPaise(receivedAmount))}.</div>}
           <DialogFooter><Button variant="outline" onClick={() => setPayoutDialog(null)}>Cancel</Button><Button disabled={savingPayout} onClick={() => void savePayout()}>{savingPayout ? "Saving…" : "Save confirmation"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(contributionDialog)} onOpenChange={(open) => !open && setContributionDialog(null)}>
+        <DialogContent className="confirm-dialog">
+          <DialogHeader>
+            <DialogTitle>{contributionDialog?.outcome === "paid" ? `Record ${covered ? "premium" : "instalment"} paid` : "Mark as missed"}</DialogTitle>
+            <DialogDescription>{contributionDialog ? `Due ${formatDate(contributionDialog.entry.dueDate)}` : ""}</DialogDescription>
+          </DialogHeader>
+          <div className="confirmation-expected"><span>Amount due</span><strong>{contributionDialog ? formatMoney(contributionDialog.entry.amountPaise) : "—"}</strong></div>
+          {contributionDialog?.outcome === "paid" && <>
+            <FormField label="Amount paid" id="contribution-amount"><Input id="contribution-amount" inputMode="decimal" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} /></FormField>
+            <FormField label="Date paid" id="contribution-date"><Input id="contribution-date" type="date" value={paidDate} onChange={(event) => setPaidDate(event.target.value)} /></FormField>
+            <FormField label="Reference (optional)" id="contribution-ref"><Input id="contribution-ref" value={paidReference} onChange={(event) => setPaidReference(event.target.value)} maxLength={120} /></FormField>
+          </>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setContributionDialog(null)}>Cancel</Button>
+            <Button disabled={savingContribution} onClick={() => void saveContribution()}>{savingContribution ? "Saving…" : "Save"}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

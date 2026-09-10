@@ -6,7 +6,24 @@ export type InvestmentType =
   | "ncd"
   | "debenture"
   | "government-security"
-  | "other";
+  | "other"
+  | "stocks"
+  | "mutual-fund-lumpsum"
+  | "mutual-fund-sip"
+  | "insurance"
+  | "term-insurance";
+
+/**
+ * What a holding fundamentally is, which decides how it behaves rather than
+ * merely how it is labelled: whether it earns a stated rate, whether it is
+ * held in units whose price moves, and whether it is paid for over time.
+ */
+export type AssetClass = "fixed-income" | "equity" | "mutual-fund" | "insurance";
+
+/** How often money is put in — a SIP instalment or an insurance premium. */
+export type ContributionFrequency = "monthly" | "quarterly" | "half-yearly" | "yearly" | "single";
+
+export type ContributionStatus = "upcoming" | "due-today" | "paid" | "missed" | "overdue";
 
 export type PayoutFrequency =
   | "monthly"
@@ -62,10 +79,51 @@ export interface InvestmentDraft {
    */
   interestStartDate?: string;
   firstPayoutDate: string;
+  /** Empty for an open-ended holding such as a stock or a fund. */
   maturityDate: string;
   expectedMaturityPaise?: bigint;
   tdsApplicable: boolean;
   expectedTdsRateBps: number;
+}
+
+/**
+ * What a unit-priced holding is made of. A stock or a fund is not owed a
+ * return, so there is nothing to project: what it is worth comes from the
+ * number of units and a price that has to be told to the app.
+ */
+export interface UnitHolding {
+  units?: number;
+  costPerUnitPaise?: bigint;
+  /** Last price or NAV entered, with the date it was true on. */
+  currentPricePerUnitPaise?: bigint;
+  valuationDate?: string;
+}
+
+/**
+ * What is paid in over time — a SIP instalment or an insurance premium — and,
+ * for a policy, what it buys.
+ */
+export interface ContributionTerms {
+  contributionPaise?: bigint;
+  contributionFrequency?: ContributionFrequency;
+  contributionStartDate?: string;
+  /** Last instalment or premium due; open-ended when absent. */
+  contributionEndDate?: string;
+  sumAssuredPaise?: bigint;
+  policyNumber?: string;
+}
+
+/** One instalment or premium, and whether it was actually paid. */
+export interface ContributionEntry {
+  id: string;
+  dueDate: string;
+  financialYear: string;
+  amountPaise: bigint;
+  status: ContributionStatus;
+  paidAmountPaise?: bigint;
+  paidDate?: string;
+  paymentReference?: string;
+  remarks?: string;
 }
 
 export interface PayoutProjection {
@@ -129,10 +187,11 @@ export interface InvestmentActivity {
   createdAt: string;
 }
 
-export interface PortfolioInvestment extends InvestmentDraft {
+export interface PortfolioInvestment extends InvestmentDraft, UnitHolding, ContributionTerms {
   id: string;
   status: "active" | "matured" | "closed" | "draft";
   schedule: PayoutProjection[];
+  contributions: ContributionEntry[];
   documents: InvestmentDocument[];
   forms: InvestmentForm[];
   activity: InvestmentActivity[];
