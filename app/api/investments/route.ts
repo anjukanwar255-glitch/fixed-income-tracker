@@ -124,7 +124,8 @@ export async function GET() {
       listDocs(documents(owner.id).where("deletedAt", "==", null).orderBy("createdAt", "desc")),
       listDocs(forms(owner.id).where("deletedAt", "==", null).orderBy("createdAt", "desc")),
       listDocs(activityLogs(owner.id).orderBy("createdAt", "desc")),
-      listDocs(contributions(owner.id).where("deletedAt", "==", null).orderBy("dueDate", "asc")),
+      listDocs(contributions(owner.id).where("deletedAt", "==", null).orderBy("dueDate", "asc"))
+        .catch(() => []),
     ]);
 
     const latestTransaction = new Map<string, (typeof transactions)[number]>();
