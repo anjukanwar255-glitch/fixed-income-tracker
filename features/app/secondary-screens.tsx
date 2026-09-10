@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatMoney } from "@/core/finance/calculations";
+import { calculateFinancialYear, formatMoney } from "@/core/finance/calculations";
 import type { PortfolioInvestment } from "@/core/models/financial";
 import { InstallAppButton } from "@/features/app/pwa";
 import { maskPhoneNumber } from "@/hooks/use-firebase-auth";
@@ -20,7 +20,7 @@ import type { Entitlement } from "@/lib/billing";
 
 type PayoutFilter = "upcoming" | "due" | "received" | "not-received" | "all";
 
-export function PayoutsScreen({ investments, onOpenInvestment }: { investments: PortfolioInvestment[]; onOpenInvestment: (id: string) => void }) {
+export function PayoutsScreen({ investments, onOpenInvestment, financialYear }: { investments: PortfolioInvestment[]; onOpenInvestment: (id: string) => void; financialYear: string }) {
   const [filter, setFilter] = useState<PayoutFilter>("upcoming");
   const [{ today, ninetyDays }] = useState(() => {
     const now = new Date();
@@ -29,7 +29,10 @@ export function PayoutsScreen({ investments, onOpenInvestment }: { investments: 
       ninetyDays: new Date(now.getTime() + 90 * 86_400_000).toISOString().slice(0, 10),
     };
   });
-  const allRows = useMemo(() => investments.flatMap((investment) => investment.schedule.map((payout) => ({ investment, payout }))).sort((a, b) => a.payout.dueDate.localeCompare(b.payout.dueDate)), [investments]);
+  const allRows = useMemo(() => investments
+    .flatMap((investment) => investment.schedule.map((payout) => ({ investment, payout })))
+    .filter(({ payout }) => payout.financialYear === financialYear)
+    .sort((a, b) => a.payout.dueDate.localeCompare(b.payout.dueDate)), [investments, financialYear]);
   const rows = allRows.filter(({ payout }) => {
     if (filter === "all") return true;
     if (filter === "received") return payout.status === "received" || payout.status === "partial-received";
@@ -37,14 +40,25 @@ export function PayoutsScreen({ investments, onOpenInvestment }: { investments: 
     if (filter === "due") return payout.status === "due-today" || payout.status === "overdue";
     return payout.status === "upcoming";
   });
-  const nextNinety = allRows.filter(({ payout }) => payout.dueDate >= today && payout.dueDate <= ninetyDays && payout.status === "upcoming");
-  const nextNinetyTotal = nextNinety.reduce((sum, { payout }) => sum + payout.expectedNetPaise, 0n);
+  /*
+   * A ninety-day look-ahead only means something inside the year running now.
+   * On any other year the same window is empty, and an empty "next 90 days"
+   * reads as "nothing is coming" rather than "you are looking at 2024". So the
+   * card becomes the year's own total once the year is not the current one.
+   */
+  const currentFinancialYear = calculateFinancialYear(today);
+  const showingCurrentYear = financialYear === currentFinancialYear;
+  const summaryRows = showingCurrentYear
+    ? allRows.filter(({ payout }) => payout.dueDate >= today && payout.dueDate <= ninetyDays && payout.status === "upcoming")
+    : allRows;
+  const summaryLabel = showingCurrentYear ? "Next 90 days" : `${financialYear} total`;
+  const summaryTotal = summaryRows.reduce((sum, { payout }) => sum + (payout.receivedAmountPaise ?? payout.expectedNetPaise), 0n);
 
   return (
     <div className="screen secondary-screen">
-      <header className="screen-header"><div><p className="screen-kicker">Cash flow</p><h1>Payouts</h1></div></header>
+      <header className="screen-header"><div><p className="screen-kicker">Cash flow · {financialYear}</p><h1>Payouts</h1></div></header>
       <Tabs value={filter} onValueChange={(value) => setFilter(value as PayoutFilter)} className="filter-tabs"><TabsList variant="line"><TabsTrigger value="upcoming">Upcoming</TabsTrigger><TabsTrigger value="due">Due</TabsTrigger><TabsTrigger value="received">Received</TabsTrigger><TabsTrigger value="not-received">Not received</TabsTrigger><TabsTrigger value="all">All</TabsTrigger></TabsList></Tabs>
-      <div className="secondary-summary"><span><CalendarClock /> Next 90 days</span><strong>{formatMoney(nextNinetyTotal)}</strong><small>{nextNinety.length} expected payout{nextNinety.length === 1 ? "" : "s"}</small></div>
+      <div className="secondary-summary"><span><CalendarClock /> {summaryLabel}</span><strong>{formatMoney(summaryTotal)}</strong><small>{summaryRows.length} payout{summaryRows.length === 1 ? "" : "s"}{showingCurrentYear ? " expected" : ""}</small></div>
       <div className="simple-list">
         {rows.map(({ investment, payout }) => (
           <button className="simple-row simple-row-button" key={`${investment.id}-${payout.id}`} onClick={() => onOpenInvestment(investment.id)}>
@@ -54,7 +68,7 @@ export function PayoutsScreen({ investments, onOpenInvestment }: { investments: 
             <Badge className={payout.status === "received" ? "status-received" : payout.status === "overdue" || payout.status === "not-received" ? "status-mismatch" : "status-upcoming"}>{labelStatus(payout.status)}</Badge>
           </button>
         ))}
-        {!rows.length && <InlineEmpty icon={CalendarClock} title={`No ${filter === "all" ? "" : `${filter.replace("-", " ")} `}payouts`} detail="Payout records will appear here after you add an investment." />}
+        {!rows.length && <InlineEmpty icon={CalendarClock} title={`No ${filter === "all" ? "" : `${filter.replace("-", " ")} `}payouts`} detail={`Nothing falls due in ${financialYear}. Change the year in the header to look elsewhere.`} />}
       </div>
     </div>
   );

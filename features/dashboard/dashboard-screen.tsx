@@ -18,16 +18,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { declarationPending } from "@/core/tax/declarations";
-import { calculateFinancialYear, formatMoney } from "@/core/finance/calculations";
+import { formatMoney } from "@/core/finance/calculations";
 import type { PortfolioInvestment } from "@/core/models/financial";
 
 type DashboardProps = {
   displayName: string;
   financialYear: string;
   investments: PortfolioInvestment[];
-  onFinancialYearChange: (value: string) => void;
   onOpenInvestment: (id: string) => void;
   onViewInvestments: () => void;
   onAddInvestment: () => void;
@@ -37,17 +35,11 @@ export function DashboardScreen({
   displayName,
   financialYear,
   investments,
-  onFinancialYearChange,
   onOpenInvestment,
   onViewInvestments,
   onAddInvestment,
 }: DashboardProps) {
   const today = new Date().toISOString().slice(0, 10);
-  const financialYears = Array.from(new Set([
-    calculateFinancialYear(today),
-    ...investments.map((item) => calculateFinancialYear(item.investmentDate)),
-    ...investments.flatMap((item) => item.schedule.map((payout) => payout.financialYear)),
-  ])).sort().reverse();
   const totalPrincipal = investments.filter((item) => item.status === "active").reduce((sum, item) => sum + item.principalPaise, 0n);
   const fyPayouts = investments.flatMap((investment) =>
     investment.schedule
@@ -90,14 +82,6 @@ export function DashboardScreen({
           <p className="screen-kicker">Good morning</p>
           <h1>Welcome, {displayName.split(" ")[0]}</h1>
         </div>
-        <Select value={financialYear} onValueChange={onFinancialYearChange}>
-          <SelectTrigger className="fy-select" aria-label="Financial year">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {financialYears.map((year) => <SelectItem value={year} key={year}>{year}</SelectItem>)}
-          </SelectContent>
-        </Select>
       </header>
 
       {!investments.length && (

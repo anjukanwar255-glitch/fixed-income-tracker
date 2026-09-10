@@ -9,12 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatMoney } from "@/core/finance/calculations";
+import { activeInFinancialYear } from "@/features/app/financial-year-select";
 import type { PortfolioInvestment } from "@/core/models/financial";
 
 type Props = {
   investments: PortfolioInvestment[];
   onOpenInvestment: (id: string) => void;
   onAddInvestment: () => void;
+  financialYear: string;
 };
 
 const typeLabels: Record<string, string> = {
@@ -28,7 +30,7 @@ const typeLabels: Record<string, string> = {
   other: "Other",
 };
 
-export function InvestmentListScreen({ investments, onOpenInvestment, onAddInvestment }: Props) {
+export function InvestmentListScreen({ investments, onOpenInvestment, onAddInvestment, financialYear }: Props) {
   const [query, setQuery] = useState("");
   const [type, setType] = useState("all");
   const [status, setStatus] = useState("active");
@@ -37,14 +39,14 @@ export function InvestmentListScreen({ investments, onOpenInvestment, onAddInves
     const matchesQuery = `${investment.issuer} ${investment.name} ${investment.investmentNumber}`.toLowerCase().includes(query.toLowerCase());
     const matchesType = type === "all" || investment.type === type;
     const matchesStatus = status === "all" || investment.status === status;
-    return matchesQuery && matchesType && matchesStatus;
-  }), [investments, query, status, type]);
+    return matchesQuery && matchesType && matchesStatus && activeInFinancialYear(investment, financialYear);
+  }), [investments, query, status, type, financialYear]);
 
   return (
     <div className="screen investment-screen">
       <header className="screen-header stacked-header">
         <div>
-          <p className="screen-kicker">Your portfolio</p>
+          <p className="screen-kicker">Your portfolio · {financialYear}</p>
           <h1>Investments</h1>
         </div>
         <Button onClick={onAddInvestment}>Add investment</Button>

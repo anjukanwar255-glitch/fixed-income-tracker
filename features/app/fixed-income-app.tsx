@@ -11,6 +11,7 @@ import { AccountSetup } from "@/features/auth/account-setup";
 import { AuthFlow } from "@/features/auth/auth-flow";
 import { DashboardScreen } from "@/features/dashboard/dashboard-screen";
 import { SubscriptionGate } from "@/features/billing/subscription-gate";
+import { FinancialYearSelect, financialYearsFor } from "@/features/app/financial-year-select";
 import { AddInvestmentSheet } from "@/features/investments/add-investment-sheet";
 import { InvestmentDetailScreen } from "@/features/investments/investment-detail-screen";
 import { InvestmentListScreen } from "@/features/investments/investment-list-screen";
@@ -184,6 +185,11 @@ export function FixedIncomeApp() {
     setScreen(value);
   };
 
+  // Profile has nothing that varies by year, and an investment's own screen
+  // shows its whole life rather than a slice of it.
+  const showFinancialYear = !selected && screen !== "profile";
+  const financialYears = financialYearsFor(investments, new Date().toISOString().slice(0, 10));
+
   return (
     <div className="app-shell">
       <aside className="desktop-sidebar">
@@ -201,7 +207,7 @@ export function FixedIncomeApp() {
         <header className="topbar">
           <button className="mobile-menu" aria-label="Open navigation"><Menu /></button>
           <div className="mobile-brand"><span className="brand-mark mini"><Landmark /></span><b>Portfolio</b></div>
-          <div className="topbar-actions"><span className="cloud-status">{billing.entitlement.state === "trial" ? `${billing.entitlement.daysRemaining} trial days left` : "Premium active"}</span><div className="notification-wrap"><button className="notification-button" aria-label={`${reminders.length} upcoming reminders`} aria-expanded={reminderOpen} onClick={() => setReminderOpen((value) => !value)}><Bell />{reminders.length > 0 && <i />}</button>{reminderOpen && <div className="notification-panel"><header><b>Upcoming reminders</b><small>Next 30 days</small></header>{reminders.length ? reminders.slice(0, 8).map((reminder) => <button key={reminder.id} onClick={() => { setSelectedInvestmentId(reminder.investmentId); setReminderOpen(false); }}><b>{reminder.title}</b><small>{reminder.body}</small></button>) : <p>No payout or maturity is due in the next 30 days.</p>}</div>}</div><button className="topbar-avatar" onClick={() => navigate("profile")}>{displayName.slice(0, 1).toUpperCase()}</button></div>
+          <div className="topbar-actions">{showFinancialYear && <FinancialYearSelect value={financialYear} years={financialYears} onChange={setFinancialYear} />}<span className="cloud-status">{billing.entitlement.state === "trial" ? `${billing.entitlement.daysRemaining} trial days left` : "Premium active"}</span><div className="notification-wrap"><button className="notification-button" aria-label={`${reminders.length} upcoming reminders`} aria-expanded={reminderOpen} onClick={() => setReminderOpen((value) => !value)}><Bell />{reminders.length > 0 && <i />}</button>{reminderOpen && <div className="notification-panel"><header><b>Upcoming reminders</b><small>Next 30 days</small></header>{reminders.length ? reminders.slice(0, 8).map((reminder) => <button key={reminder.id} onClick={() => { setSelectedInvestmentId(reminder.investmentId); setReminderOpen(false); }}><b>{reminder.title}</b><small>{reminder.body}</small></button>) : <p>No payout or maturity is due in the next 30 days.</p>}</div>}</div><button className="topbar-avatar" onClick={() => navigate("profile")}>{displayName.slice(0, 1).toUpperCase()}</button></div>
         </header>
 
         <main className="app-content">
@@ -212,11 +218,11 @@ export function FixedIncomeApp() {
           ) : selected ? (
             <InvestmentDetailScreen investment={selected} onBack={() => setSelectedInvestmentId(null)} onEdit={() => openEditInvestment(selected)} onDataChanged={loadPortfolio} />
           ) : screen === "home" ? (
-            <DashboardScreen displayName={displayName} financialYear={financialYear} investments={investments} onFinancialYearChange={setFinancialYear} onOpenInvestment={openInvestment} onViewInvestments={() => navigate("investments")} onAddInvestment={openAddInvestment} />
+            <DashboardScreen displayName={displayName} financialYear={financialYear} investments={investments} onOpenInvestment={openInvestment} onViewInvestments={() => navigate("investments")} onAddInvestment={openAddInvestment} />
           ) : screen === "investments" ? (
-            <InvestmentListScreen investments={investments} onOpenInvestment={openInvestment} onAddInvestment={openAddInvestment} />
+            <InvestmentListScreen investments={investments} onOpenInvestment={openInvestment} onAddInvestment={openAddInvestment} financialYear={financialYear} />
           ) : screen === "payouts" ? (
-            <PayoutsScreen investments={investments} onOpenInvestment={openInvestment} />
+            <PayoutsScreen investments={investments} onOpenInvestment={openInvestment} financialYear={financialYear} />
           ) : screen === "tds" ? (
             <TdsScreen investments={investments} onOpenInvestment={openInvestment} financialYear={financialYear} />
           ) : (
