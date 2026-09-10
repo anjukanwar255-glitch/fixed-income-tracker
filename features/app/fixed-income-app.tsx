@@ -234,7 +234,7 @@ export function FixedIncomeApp() {
           ) : screen === "payouts" ? (
             <PayoutsScreen investments={investments} onOpenInvestment={openInvestment} financialYear={financialYear} />
           ) : screen === "subscription" ? (
-            <SubscriptionScreen entitlement={billing.entitlement} onBillingChanged={loadBilling} />
+            <SubscriptionScreen entitlement={billing.entitlement} plans={billing.plans} displayName={displayName} email={ownAccount.profile?.email ?? null} phoneNumber={auth.user?.phoneNumber ?? null} onBillingChanged={loadBilling} />
           ) : screen === "feedback" ? (
             <FeedbackScreen appContext={`screen:${screen} · fy:${financialYear}`} />
           ) : screen === "tds" ? (

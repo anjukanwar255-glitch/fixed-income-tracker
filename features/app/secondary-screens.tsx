@@ -17,6 +17,7 @@ import { InstallAppButton } from "@/features/app/pwa";
 import { maskPhoneNumber } from "@/hooks/use-firebase-auth";
 import { apiFetch, getFirebaseAuth } from "@/lib/firebase-client";
 import type { Entitlement } from "@/lib/billing";
+import { PlanGrid, type Plan, planPeriodLabel, usePlanCheckout } from "@/features/billing/plan-checkout";
 
 type PayoutFilter = "upcoming" | "due" | "received" | "not-received" | "all";
 
@@ -115,7 +116,16 @@ type AccountProfile = {
   mobileE164: string | null;
 };
 
-export function SubscriptionScreen({ entitlement, onBillingChanged }: { entitlement: Entitlement; onBillingChanged: () => Promise<void> }) {
+export function SubscriptionScreen({ entitlement, plans, displayName, email, phoneNumber, onBillingChanged }: {
+  entitlement: Entitlement;
+  plans: Plan[];
+  displayName: string;
+  email: string | null;
+  phoneNumber: string | null;
+  onBillingChanged: () => Promise<void>;
+}) {
+  const { busyPlan, subscribe } = usePlanCheckout({ displayName, email, phoneNumber, onActivated: onBillingChanged });
+
   const cancelRenewal = async () => {
     if (!window.confirm(`Cancel automatic renewal? Your access will continue until ${entitlement.currentPeriodEnd ? formatDate(entitlement.currentPeriodEnd) : "the current billing period ends"}.`)) return;
     const response = await apiFetch("/api/billing/subscription", { method: "DELETE" });
@@ -125,26 +135,54 @@ export function SubscriptionScreen({ entitlement, onBillingChanged }: { entitlem
     toast.success("Renewal cancelled. Access continues to the end of the period.");
   };
 
-  const planName = entitlement.planCode ? entitlement.planCode.replace("half-yearly", "6-month") : null;
+  const trialing = entitlement.state === "trial";
+  const current = plans.find((plan) => plan.code === entitlement.planCode) ?? null;
+  const accessUntil = entitlement.currentPeriodEnd ?? entitlement.trialEndsAt ?? null;
 
   return (
     <div className="screen secondary-screen">
       <header className="screen-header"><div><p className="screen-kicker">Billing</p><h1>Subscription</h1></div></header>
-      <div className="tds-metric-grid">
-        <div><span>Status</span><strong>{entitlement.state === "trial" ? "Free trial" : entitlement.subscriptionStatus ?? "Inactive"}</strong><small>{planName ? `${planName} plan` : "No active plan"}</small></div>
-        <div><span>Access through</span><strong>{entitlement.currentPeriodEnd ? formatDate(entitlement.currentPeriodEnd) : entitlement.trialEndsAt ? formatDate(entitlement.trialEndsAt) : "—"}</strong><small>{entitlement.state === "trial" ? `${entitlement.daysRemaining} days remaining` : "End of current period"}</small></div>
-        <div><span>Renewal</span><strong>{entitlement.cancelAtPeriodEnd ? "Cancelled" : entitlement.state === "subscribed" ? "Automatic" : "Not started"}</strong><small>{entitlement.cancelAtPeriodEnd ? "Access continues to the period end" : "Nothing to do"}</small></div>
-      </div>
-      <section className="settings-card">
-        <div className="section-heading"><div><h2>Your plan</h2><p>Everything the app records stays yours, subscribed or not</p></div><ReceiptIndianRupee /></div>
-        <div className="security-list">
-          <span>Records <b>Kept for as long as the account exists</b></span>
-          <span>Export <b>Available from Profile at any time</b></span>
-          <span>Payment <b>Handled by the payment provider, never stored here</b></span>
+
+      {/*
+        What is running now, stated once and plainly. A trial is a real state
+        with a real end date, not an absence of a plan, so it gets the same
+        card rather than an empty one.
+      */}
+      <section className="current-plan-card" data-trial={trialing}>
+        <div className="current-plan-head">
+          <span className="current-plan-eyebrow">{trialing ? "Free trial" : current ? "Current plan" : "No active plan"}</span>
+          <h2>{trialing ? "Trial" : current?.label ?? "Not subscribed"}</h2>
+          {current && !trialing && <p className="current-plan-amount">₹{current.amountPaise / 100}<span> / {planPeriodLabel(current.code)}</span></p>}
         </div>
+        <div className="current-plan-facts">
+          <span><small>Status</small><b>{trialing ? "Active trial" : entitlement.subscriptionStatus ?? "Inactive"}</b></span>
+          <span><small>{trialing ? "Trial ends" : "Access through"}</small><b>{accessUntil ? formatDate(accessUntil) : "—"}</b></span>
+          <span><small>Renewal</small><b>{entitlement.cancelAtPeriodEnd ? "Cancelled" : entitlement.state === "subscribed" ? "Automatic" : "Not started"}</b></span>
+        </div>
+        {trialing && <p className="current-plan-note">{entitlement.daysRemaining} day{entitlement.daysRemaining === 1 ? "" : "s"} left. Choose a plan below to continue without interruption.</p>}
+        {entitlement.cancelAtPeriodEnd && <p className="current-plan-note">Renewal is off. Access continues to the date above, then stops.</p>}
         {entitlement.state === "subscribed" && !entitlement.cancelAtPeriodEnd && (
           <div className="settings-actions"><Button variant="outline" onClick={() => void cancelRenewal()}>Cancel renewal</Button></div>
         )}
+      </section>
+
+      <div className="section-heading"><div><h2>{current ? "Change your plan" : "Choose a plan"}</h2><p>Every plan carries the same features; only the billing period differs</p></div></div>
+      <PlanGrid
+        plans={plans}
+        entitlement={entitlement}
+        busyPlan={busyPlan}
+        currentPlan={entitlement.planCode}
+        onChoose={(code) => void subscribe(code)}
+      />
+      {!entitlement.billingConfigured && <p className="billing-setup-warning">Secure payments are being configured. No charge can be made until Razorpay live keys and plan IDs are connected.</p>}
+
+      <section className="settings-card">
+        <div className="section-heading"><div><h2>What stays yours</h2><p>Subscribed or not</p></div><ShieldCheck /></div>
+        <div className="security-list">
+          <span>Records <b>Kept for as long as the account exists</b></span>
+          <span>Export <b>Available from Profile at any time</b></span>
+          <span>Payment details <b>Held by Razorpay, never stored here</b></span>
+        </div>
       </section>
     </div>
   );
