@@ -25,10 +25,12 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { calculateFinancialYear, calculateInterest, formatMoney, parseRupeesToPaise } from "@/core/finance/calculations";
+import { DECLARATION_FORM_TYPE, declarationPending } from "@/core/tax/declarations";
 import { apiFetch, downloadDocument, uploadDocumentFile } from "@/lib/firebase-client";
 import type { PayoutProjection, PortfolioInvestment } from "@/core/models/financial";
 
@@ -59,6 +61,11 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
   const [verificationDate, setVerificationDate] = useState(todayIso());
   const [tdsRemarks, setTdsRemarks] = useState("");
   const [savingTds, setSavingTds] = useState(false);
+  const [declarationOpen, setDeclarationOpen] = useState(false);
+  const [declarationStatus, setDeclarationStatus] = useState("submitted");
+  const [declarationDate, setDeclarationDate] = useState(todayIso());
+  const [acknowledgement, setAcknowledgement] = useState("");
+  const [savingDeclaration, setSavingDeclaration] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [statusBusy, setStatusBusy] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -86,6 +93,36 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
     ["Next payout", nextPayout ? formatDate(nextPayout.dueDate) : "—"],
     ["Maturity amount", formatMoney(investment.expectedMaturityPaise ?? investment.principalPaise)],
   ];
+
+  const currentFinancialYear = calculateFinancialYear(todayIso());
+  const declarationDue = declarationPending(investment, currentFinancialYear);
+
+  const saveDeclaration = async () => {
+    setSavingDeclaration(true);
+    try {
+      const response = await apiFetch("/api/forms", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          investmentId: investment.id,
+          financialYear: currentFinancialYear,
+          status: declarationStatus,
+          submissionDate: declarationStatus === "submitted" || declarationStatus === "accepted" ? declarationDate : undefined,
+          acknowledgementNumber: acknowledgement || undefined,
+        }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "The declaration could not be saved");
+      await onDataChanged();
+      setDeclarationOpen(false);
+      setAcknowledgement("");
+      toast.success(`${DECLARATION_FORM_TYPE} recorded for ${currentFinancialYear}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The declaration could not be saved");
+    } finally {
+      setSavingDeclaration(false);
+    }
+  };
 
   const openPayout = (payout: PayoutProjection, outcome: "received" | "not-received") => {
     setPayoutDialog({ payout, outcome });
@@ -295,9 +332,17 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
         </TabsContent>
 
         <TabsContent value="forms" className="detail-tab-content">
-          <SectionTitle title="Forms & declarations" description="Financial-year records linked to this investment" />
-          {investment.forms.map((form) => <div className="form-status-row" key={form.id}><span><FileText /><b>{form.formType}</b><small>{form.financialYear}</small></span><Badge className={form.status === "accepted" ? "status-received" : "status-pending"}>{labelType(form.status)}</Badge></div>)}
-          {!investment.forms.length && <InlineEmpty icon={FileText} title="No forms recorded" detail="There is no declaration record for this investment yet." />}
+          <SectionTitle title="Forms & declarations" description={`${DECLARATION_FORM_TYPE} is filed for each financial year separately`} />
+          {declarationDue && (
+            <div className="mismatch-note">
+              <AlertTriangle /> {DECLARATION_FORM_TYPE} for {currentFinancialYear} has not been recorded. Until it is, tax will be deducted on every payout this year.
+            </div>
+          )}
+          {investment.declarationApplicable && (
+            <Button size="sm" onClick={() => setDeclarationOpen(true)}>Record {DECLARATION_FORM_TYPE} for {currentFinancialYear}</Button>
+          )}
+          {investment.forms.map((form) => <div className="form-status-row" key={form.id}><span><FileText /><b>{form.formType}</b><small>{form.financialYear}{form.submissionDate ? ` · filed ${formatDate(form.submissionDate)}` : ""}</small></span><Badge className={form.status === "accepted" ? "status-received" : "status-pending"}>{labelType(form.status)}</Badge></div>)}
+          {!investment.forms.length && !investment.declarationApplicable && <InlineEmpty icon={FileText} title="No declaration needed" detail="Turn on the exemption toggle in the investment's TDS settings if one applies." />}
         </TabsContent>
 
         <TabsContent value="activity" className="detail-tab-content">
@@ -330,6 +375,38 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
           <FormField label="Remarks (optional)" id="payout-remarks"><Textarea id="payout-remarks" value={payoutRemarks} onChange={(event) => setPayoutRemarks(event.target.value)} /></FormField>
           {payoutDialog?.outcome === "received" && parseRupeesToPaise(receivedAmount) !== payoutDialog.payout.expectedNetPaise && <div className="mismatch-note"><AlertTriangle /> Expected {formatMoney(payoutDialog.payout.expectedNetPaise)}; entered {formatMoney(parseRupeesToPaise(receivedAmount))}.</div>}
           <DialogFooter><Button variant="outline" onClick={() => setPayoutDialog(null)}>Cancel</Button><Button disabled={savingPayout} onClick={() => void savePayout()}>{savingPayout ? "Saving…" : "Save confirmation"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={declarationOpen} onOpenChange={setDeclarationOpen}>
+        <DialogContent className="confirm-dialog">
+          <DialogHeader>
+            <DialogTitle>Record {DECLARATION_FORM_TYPE}</DialogTitle>
+            <DialogDescription>For {currentFinancialYear}. A declaration covers one financial year and has to be filed again in April.</DialogDescription>
+          </DialogHeader>
+          <FormField label="Status" id="declaration-status">
+            <Select value={declarationStatus} onValueChange={setDeclarationStatus}>
+              <SelectTrigger id="declaration-status"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="submitted">Submitted to the issuer</SelectItem>
+                <SelectItem value="accepted">Accepted by the issuer</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+                <SelectItem value="expired">Expired</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+          {(declarationStatus === "submitted" || declarationStatus === "accepted") && (
+            <FormField label="Date filed" id="declaration-date">
+              <Input id="declaration-date" type="date" value={declarationDate} onChange={(event) => setDeclarationDate(event.target.value)} />
+            </FormField>
+          )}
+          <FormField label="Acknowledgement number (optional)" id="declaration-ack">
+            <Input id="declaration-ack" value={acknowledgement} onChange={(event) => setAcknowledgement(event.target.value)} maxLength={80} />
+          </FormField>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeclarationOpen(false)}>Cancel</Button>
+            <Button disabled={savingDeclaration} onClick={() => void saveDeclaration()}>{savingDeclaration ? "Saving…" : "Save declaration"}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

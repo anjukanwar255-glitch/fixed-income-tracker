@@ -8,6 +8,7 @@ const vite = await createServer({ appType: "custom", configFile: false, root, re
 after(async () => vite.close());
 const finance = await vite.ssrLoadModule("/core/finance/calculations.ts");
 const files = await vite.ssrLoadModule("/lib/file-validation.ts");
+const tax = await vite.ssrLoadModule("/core/tax/declarations.ts");
 
 test("uses exact date accrual for a complete non-leap year", () => {
   assert.equal(finance.calculateInterestForDates(10_000_000n, 750, "2025-01-01", "2026-01-01", "actual-365"), 750_000n);
@@ -231,4 +232,35 @@ test("TDS applies to the interest in a document row, never to the principal", ()
 test("a generated schedule repays no principal along the way", () => {
   const schedule = finance.generatePayoutSchedule(muthootDraft);
   assert.ok(schedule.every((row) => row.principalRepaidPaise === 0n));
+});
+
+test("a declaration is pending until one is filed for that year", () => {
+  const investment = { declarationApplicable: true, status: "active", forms: [] };
+  assert.equal(tax.declarationPending(investment, "2026-27"), true);
+
+  const filed = { ...investment, forms: [{ financialYear: "2026-27", status: "submitted" }] };
+  assert.equal(tax.declarationPending(filed, "2026-27"), false);
+});
+
+test("last year's declaration does not cover this year", () => {
+  const investment = {
+    declarationApplicable: true,
+    status: "active",
+    forms: [{ financialYear: "2025-26", status: "accepted" }],
+  };
+  assert.equal(tax.declarationPending(investment, "2026-27"), true);
+});
+
+test("a rejected declaration leaves the year uncovered", () => {
+  const investment = {
+    declarationApplicable: true,
+    status: "active",
+    forms: [{ financialYear: "2026-27", status: "rejected" }],
+  };
+  assert.equal(tax.declarationPending(investment, "2026-27"), true);
+});
+
+test("nothing is pending where no declaration applies or the holding has closed", () => {
+  assert.equal(tax.declarationPending({ declarationApplicable: false, status: "active", forms: [] }, "2026-27"), false);
+  assert.equal(tax.declarationPending({ declarationApplicable: true, status: "matured", forms: [] }, "2026-27"), false);
 });

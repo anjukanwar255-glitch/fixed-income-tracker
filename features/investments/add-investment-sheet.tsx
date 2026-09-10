@@ -15,6 +15,7 @@ import {
   ReceiptIndianRupee,
   ScanLine,
   UploadCloud,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -34,6 +35,7 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { indianBankGroups } from "@/core/data/indian-banks";
+import { DECLARATION_FORM_TYPE, TDS_RATE_WITHOUT_PAN_BPS, TDS_RATE_WITH_PAN_BPS } from "@/core/tax/declarations";
 import { formatMoney, generatePayoutSchedule, parseRupeesToPaise, previousCouponDate } from "@/core/finance/calculations";
 import { apiFetch, uploadDocumentFile } from "@/lib/firebase-client";
 import type { CompoundingFrequency, DayCountBasis, InterestType, InvestmentType, PayoutFrequency, PortfolioInvestment } from "@/core/models/financial";
@@ -49,8 +51,40 @@ const steps = ["Type", "Details", "Interest", "TDS", "Account", "Documents"];
 const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const allowedDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png"]);
 const ISSUER_SUGGESTIONS_ID = "issuer-bank-suggestions";
+/** More than this on one investment is a mis-click, not a filing. */
+const MAX_ATTACHMENTS = 10;
+
+type Attachment = { file: File; documentType: string };
+
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  "bond-certificate": "Bond agreement / deal sheet",
+  "investment-certificate": "Certificate",
+  "repayment-schedule": "Repayment schedule",
+};
+
+function documentTypeLabel(documentType: string) {
+  return DOCUMENT_TYPE_LABELS[documentType] ?? "Document";
+}
+
+function certificateType(type: InvestmentType) {
+  return isBondType(type) ? "bond-certificate" : "investment-certificate";
+}
 const BANK_SUGGESTIONS_ID = "receiving-bank-suggestions";
 const allBanks = indianBankGroups.flatMap((group) => group.banks);
+const RATE_WITH_PAN = (TDS_RATE_WITH_PAN_BPS / 100).toFixed(2);
+const RATE_WITHOUT_PAN = (TDS_RATE_WITHOUT_PAN_BPS / 100).toFixed(2);
+
+/**
+ * Moves the rate to the one the law would apply, but only from a value the
+ * form itself suggested. A rate typed in from the issuer's terms is left
+ * alone — those terms outrank the default, and silently overwriting them
+ * would misstate every payout in the schedule.
+ */
+function suggestedTdsRate(current: string, linked: boolean) {
+  const next = linked ? RATE_WITH_PAN : RATE_WITHOUT_PAN;
+  const untouched = !current || current === RATE_WITH_PAN || current === RATE_WITHOUT_PAN;
+  return untouched ? next : current;
+}
 
 const payoutOptions: { value: PayoutFrequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
@@ -109,13 +143,16 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [advisor, setAdvisor] = useState(initialInvestment?.advisorName ?? "");
   const [advisorMobile, setAdvisorMobile] = useState(initialInvestment?.advisorMobile ?? "");
   const [notes, setNotes] = useState(initialInvestment?.notes ?? "");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   /**
-   * Documents that came from a scan, carried forward so step 6 already has
-   * them: they are the certificate this investment should be filed with, and
-   * asking for them a second time is asking for the same files twice.
+   * Everything to be filed with this investment. All of it is stored, not just
+   * one chosen document: a bond is described by its deal sheet and its
+   * repayment schedule together, and keeping only one of them loses half of
+   * what a payout would later be reconciled against.
+   *
+   * Documents that came from a scan arrive here already, since asking for them
+   * a second time is asking for the same files twice.
    */
-  const [scannedFiles, setScannedFiles] = useState<File[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   /**
    * The two documents are held in named slots rather than one heap, so it is
    * clear which paper is which — both to whoever is filling the form and to
@@ -244,9 +281,12 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
 
       // These are the papers this investment should be filed with, so they
       // carry through to the documents step instead of being asked for twice.
-      const files = attached.map((entry) => entry.file);
-      setScannedFiles(files);
-      setSelectedFile(files[0]);
+      // Each keeps the role it was scanned under, so the schedule is filed as a
+      // schedule rather than as another copy of the certificate.
+      setAttachments(attached.map(({ role, file }) => ({
+        file,
+        documentType: role === "schedule" ? "repayment-schedule" : certificateType(type),
+      })));
 
       toast.success(filled
         ? `Read ${filled} field${filled === 1 ? "" : "s"} — check each against the documents`
@@ -365,15 +405,12 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
       toast.error("Enter a valid account number (9 to 18 digits)");
       return;
     }
-    if (selectedFile && (!allowedDocumentTypes.has(selectedFile.type) || selectedFile.size <= 0 || selectedFile.size > MAX_DOCUMENT_BYTES)) {
-      toast.error("Upload a PDF, JPG, JPEG or PNG up to 10 MB");
-      return;
-    }
+
     // A bond has to be filed with its paperwork: the terms live in the
     // agreement, not in this form, and a holding with no document behind it
     // cannot be reconciled against the broker later. Scanning already supplies
     // one, so this only stops someone who typed everything by hand.
-    if (bondDocument && !selectedFile && !initialInvestment) {
+    if (bondDocument && !attachments.length && !initialInvestment) {
       setStep(6);
       toast.error("Attach the bond agreement or deal sheet before saving");
       return;
@@ -389,7 +426,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     };
     setSaving(true);
     try {
-      const result = await syncInvestment(investment, { bankName: resolvedBankName, ifscCode: ifsc, accountNumber, paymentMode, nominee, broker, dpId, clientId, orderReference, advisor, advisorMobile, notes }, scannedSchedule, { panLinked, declarationApplicable }, selectedFile);
+      const result = await syncInvestment(investment, { bankName: resolvedBankName, ifscCode: ifsc, accountNumber, paymentMode, nominee, broker, dpId, clientId, orderReference, advisor, advisorMobile, notes }, scannedSchedule, { panLinked, declarationApplicable }, attachments);
       if (result.warning) toast.warning(result.warning);
       await onSave(result.investmentId);
       onOpenChange(false);
@@ -408,9 +445,9 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     setMaturityDate(""); setMaturityAmount(""); setInterestType("simple"); setCompoundingFrequency("quarterly"); setDayCountBasis("actual-365"); setFrequency("quarterly");
     setFirstPayoutDate(""); setTdsApplicable(false); setTdsRate(""); setPanLinked(false);
     setDeclarationApplicable(false); setBankName(""); setIfsc(""); setIfscLookup(null); setAccountNumber(""); setPaymentMode("bank-transfer");
-    setNominee(""); setBroker(""); setAdvisor(""); setAdvisorMobile(""); setNotes(""); setSelectedFile(null);
+    setNominee(""); setBroker(""); setAdvisor(""); setAdvisorMobile(""); setNotes(""); setAttachments([]);
     setFaceValue(""); setInterestStartDate(""); setDpId(""); setClientId(""); setOrderReference("");
-    setScannedFiles([]); setDealSheetFile(null); setScheduleFile(null); setScannedSchedule([]);
+    setDealSheetFile(null); setScheduleFile(null); setScannedSchedule([]);
   };
 
   return (
@@ -526,10 +563,44 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
           {step === 4 && (
             <div className="form-section">
               <FormHeading title="TDS settings" description="Suggested tax values stay editable and are never treated as verified." />
-              <ToggleRow label="TDS applicable" description="Calculate expected deduction for each payout" checked={tdsApplicable} onCheckedChange={setTdsApplicable} />
-              {tdsApplicable && <Field label="Expected TDS rate (%)" value={tdsRate} setValue={setTdsRate} inputMode="decimal" placeholder="10.00" />}
-              <ToggleRow label="PAN linked" description="Stored as a status only; PAN stays masked" checked={panLinked} onCheckedChange={setPanLinked} />
-              <ToggleRow label="Exemption / declaration applicable" description="Track form submission by financial year" checked={declarationApplicable} onCheckedChange={setDeclarationApplicable} />
+              <ToggleRow
+                label="TDS applicable"
+                description="Calculate expected deduction for each payout"
+                checked={tdsApplicable}
+                onCheckedChange={(checked) => {
+                  setTdsApplicable(checked);
+                  if (checked) setTdsRate((current) => suggestedTdsRate(current, panLinked));
+                }}
+              />
+              {tdsApplicable && (
+                <div className="form-field">
+                  <Label htmlFor="field-tds-rate">Expected TDS rate (%)</Label>
+                  <Input id="field-tds-rate" value={tdsRate} onChange={(event) => setTdsRate(event.target.value)} inputMode="decimal" placeholder={RATE_WITH_PAN} />
+                  <p className="field-note">
+                    {panLinked
+                      ? `${RATE_WITH_PAN}% applies where a PAN is on record.`
+                      : `${RATE_WITHOUT_PAN}% applies while no PAN is on record. Linking the PAN halves it.`}
+                    {" Use the issuer's own rate wherever it differs."}
+                  </p>
+                </div>
+              )}
+              <ToggleRow
+                label="PAN linked"
+                description={panLinked
+                  ? `Deduction runs at ${RATE_WITH_PAN}%. PAN itself is not stored.`
+                  : `Without a PAN on record, deduction runs at ${RATE_WITHOUT_PAN}%. PAN itself is not stored.`}
+                checked={panLinked}
+                onCheckedChange={(checked) => {
+                  setPanLinked(checked);
+                  if (tdsApplicable) setTdsRate((current) => suggestedTdsRate(current, checked));
+                }}
+              />
+              <ToggleRow
+                label="Exemption / declaration applicable"
+                description={`${DECLARATION_FORM_TYPE} is filed each financial year. Record it from the Forms tab; a year without one is flagged.`}
+                checked={declarationApplicable}
+                onCheckedChange={setDeclarationApplicable}
+              />
               {firstProjection && (
                 <div className="tds-preview">
                   <div><span>Gross interest</span><b>{formatMoney(firstProjection.grossInterestPaise)}</b></div>
@@ -595,47 +666,50 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
             <div className="form-section">
               <FormHeading
                 title="Documents & review"
-                description={scannedFiles.length
-                  ? "Carried over from the scan. Choose which one to file with this investment."
+                description={attachments.length
+                  ? "Everything listed here is filed with this investment."
                   : bondDocument
                     ? "Attach the bond agreement or deal sheet — a holding without its paperwork is hard to reconcile later."
                     : "Upload a certificate now or add documents later."}
               />
-              {/*
-                Files that came from a scan are offered as choices rather than
-                re-requested. They are already on the device and already read;
-                asking for them again is asking twice for the same thing.
-              */}
-              {scannedFiles.length > 0 && (
-                <div className="scanned-file-list" role="radiogroup" aria-label="Document to file">
-                  {scannedFiles.map((file) => (
-                    <label key={file.name} className="scanned-file" data-selected={selectedFile?.name === file.name}>
-                      <input
-                        type="radio"
-                        name="scanned-document"
-                        checked={selectedFile?.name === file.name}
-                        onChange={() => setSelectedFile(file)}
-                      />
+              {attachments.length > 0 && (
+                <div className="scanned-file-list">
+                  {attachments.map((item) => (
+                    <div className="scanned-file" data-selected key={`${item.file.name}:${item.file.size}`}>
                       <FileText aria-hidden="true" />
-                      <b>{file.name}</b>
-                      {selectedFile?.name === file.name && <Check aria-hidden="true" />}
-                    </label>
+                      <b>{item.file.name}</b>
+                      <small>{documentTypeLabel(item.documentType)}</small>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${item.file.name}`}
+                        onClick={() => setAttachments((current) => current.filter((entry) => entry.file !== item.file))}
+                      >
+                        <X aria-hidden="true" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
               <label className="upload-zone">
-                <input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null;
-                  if (file && (!allowedDocumentTypes.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES)) {
-                    event.currentTarget.value = "";
-                    toast.error("Upload a PDF, JPG, JPEG or PNG up to 10 MB");
-                    return;
-                  }
-                  if (file) setSelectedFile(file);
+                <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => {
+                  const chosen = Array.from(event.target.files ?? []);
+                  event.currentTarget.value = "";
+                  const usable = chosen.filter((file) => allowedDocumentTypes.has(file.type) && file.size > 0 && file.size <= MAX_DOCUMENT_BYTES);
+                  if (usable.length < chosen.length) toast.error("Each file must be a PDF, JPG, JPEG or PNG up to 10 MB");
+                  if (!usable.length) return;
+                  setAttachments((current) => {
+                    // Re-picking a file already on the list replaces nothing and
+                    // adds nothing; without this, saving would upload it twice.
+                    const seen = new Set(current.map((entry) => `${entry.file.name}:${entry.file.size}`));
+                    const additions = usable
+                      .filter((file) => !seen.has(`${file.name}:${file.size}`))
+                      .map((file) => ({ file, documentType: certificateType(type) }));
+                    return [...current, ...additions].slice(0, MAX_ATTACHMENTS);
+                  });
                 }} />
                 <UploadCloud aria-hidden="true" />
-                <b>{scannedFiles.length ? "Attach a different document" : selectedFile?.name ?? (bondDocument ? "Add bond document" : "Add investment document")}</b>
-                <span>PDF, JPG, JPEG or PNG · max 10 MB · private access</span>
+                <b>{attachments.length ? "Add another document" : bondDocument ? "Add bond document" : "Add investment document"}</b>
+                <span>PDF, JPG, JPEG or PNG · max 10 MB each · private access</span>
               </label>
               <div className="review-card">
                 <span className="review-icon"><Landmark /></span>
@@ -722,7 +796,7 @@ function CalculationPreview({ projection, rate, amount }: { projection: ReturnTy
 
 type ScheduleRow = { dueDate: string; interestPaise: number; principalPaise: number };
 
-async function syncInvestment(investment: PortfolioInvestment, extra: Record<string, string>, schedule: ScheduleRow[], flags: { panLinked: boolean; declarationApplicable: boolean }, file: File | null) {
+async function syncInvestment(investment: PortfolioInvestment, extra: Record<string, string>, schedule: ScheduleRow[], flags: { panLinked: boolean; declarationApplicable: boolean }, files: Attachment[]) {
     const response = await apiFetch(investment.id ? `/api/investments/${investment.id}` : "/api/investments", {
       method: investment.id ? "PATCH" : "POST",
       headers: { "content-type": "application/json" },
@@ -766,13 +840,21 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
     });
     const result = await response.json() as { investmentId?: string; scheduleCount?: number; warning?: string | null; error?: string };
     if (!response.ok || !result.investmentId) throw new Error(result.error ?? "Investment could not be saved");
-    if (file) {
-      const upload = await uploadDocumentFile(file, {
+    // Uploaded one at a time so a single rejected file cannot take the rest
+    // with it; the investment is already saved either way.
+    let failed = 0;
+    for (const attachment of files) {
+      const upload = await uploadDocumentFile(attachment.file, {
         investmentId: result.investmentId,
-        documentType: isBondType(investment.type) ? "bond-certificate" : "investment-certificate",
+        documentType: attachment.documentType,
         financialYear: investment.schedule[0]?.financialYear ?? "",
       });
-      if (!upload.ok) toast.warning("Investment saved, but the document needs to be uploaded again");
+      if (!upload.ok) failed += 1;
+    }
+    if (failed) {
+      toast.warning(failed === files.length
+        ? "Investment saved, but the documents need to be uploaded again"
+        : `Investment saved. ${failed} of ${files.length} documents need to be uploaded again`);
     }
     return { investmentId: result.investmentId, scheduleCount: result.scheduleCount ?? investment.schedule.length, warning: result.warning };
 }

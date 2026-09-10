@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { declarationPending } from "@/core/tax/declarations";
 import { calculateFinancialYear, formatMoney } from "@/core/finance/calculations";
 import type { PortfolioInvestment } from "@/core/models/financial";
 
@@ -68,7 +69,7 @@ export function DashboardScreen({
   const tdsMismatch = fyPayouts.reduce((sum, payout) => payout.tdsStatus === "mismatch"
     ? sum + absolute((payout.actualTdsPaise ?? payout.expectedTdsPaise) - (payout.reflectedAmountPaise ?? 0n))
     : sum, 0n);
-  const pendingForms = investments.flatMap((item) => item.forms).filter((form) => form.financialYear === financialYear && ["required", "pending", "rejected", "expired"].includes(form.status)).length;
+  const pendingForms = investments.filter((item) => declarationPending(item, financialYear)).length;
   const ninetyDaysFromNow = new Date(new Date(`${today}T00:00:00Z`).getTime() + 90 * 86_400_000).toISOString().slice(0, 10);
   const maturityCount = investments.filter((item) => item.status === "active" && item.maturityDate >= today && item.maturityDate <= ninetyDaysFromNow).length;
   const attentionCount = overdueCount + (tdsMismatch > 0n ? 1 : 0) + pendingForms + maturityCount;
