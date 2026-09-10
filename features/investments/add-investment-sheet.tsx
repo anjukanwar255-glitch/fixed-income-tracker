@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Banknote,
   Building2,
@@ -26,10 +26,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -49,11 +46,11 @@ type Props = {
 };
 
 const steps = ["Type", "Details", "Interest", "TDS", "Account", "Documents"];
-const MANUAL_BANK = "manual-bank";
 const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const allowedDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png"]);
-const knownBanks: Set<string> = new Set(indianBankGroups.flatMap((group) => group.banks));
 const ISSUER_SUGGESTIONS_ID = "issuer-bank-suggestions";
+const BANK_SUGGESTIONS_ID = "receiving-bank-suggestions";
+const allBanks = indianBankGroups.flatMap((group) => group.banks);
 
 const payoutOptions: { value: PayoutFrequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
@@ -95,8 +92,12 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [tdsRate, setTdsRate] = useState(() => initialInvestment ? (initialInvestment.expectedTdsRateBps / 100).toFixed(2) : "");
   const [panLinked, setPanLinked] = useState(initialInvestment?.panLinked ?? false);
   const [declarationApplicable, setDeclarationApplicable] = useState(initialInvestment?.declarationApplicable ?? false);
-  const [bankOption, setBankOption] = useState(() => initialInvestment?.bankName ? (knownBanks.has(initialInvestment.bankName) ? initialInvestment.bankName : MANUAL_BANK) : "");
-  const [manualBankName, setManualBankName] = useState(() => initialInvestment?.bankName && !knownBanks.has(initialInvestment.bankName) ? initialInvestment.bankName : "");
+  const [bankName, setBankName] = useState(initialInvestment?.bankName ?? "");
+  /**
+   * What the IFSC turned out to belong to. Kept with the code it answers, so
+   * editing the code drops the stale answer without a second state update.
+   */
+  const [ifscLookup, setIfscLookup] = useState<{ code: string; branch: string | null } | null>(null);
   const [ifsc, setIfsc] = useState(initialInvestment?.ifscCode ?? "");
   const [accountNumber, setAccountNumber] = useState(initialInvestment?.accountNumber ?? "");
   const [paymentMode, setPaymentMode] = useState(initialInvestment?.paymentMode ?? "bank-transfer");
@@ -269,7 +270,35 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     void runScan(next);
   };
 
-  const resolvedBankName = bankOption === MANUAL_BANK ? manualBankName.trim() : bankOption;
+  const resolvedBankName = bankName.trim();
+  const bankNameInvalid = /\d/.test(bankName);
+
+  /*
+   * Resolves the code once it is long enough to mean anything, and names the
+   * branch back. The bank name is filled in from the answer only when it is
+   * still blank, so a lookup never overwrites what someone typed.
+   */
+  useEffect(() => {
+    if (ifsc.length !== 11) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await apiFetch(`/api/ifsc?code=${ifsc}`, { signal: controller.signal });
+        const payload = await response.json() as { bank?: string; branch?: string | null; city?: string | null };
+        if (!response.ok || !payload.bank) { setIfscLookup({ code: ifsc, branch: null }); return; }
+        setIfscLookup({ code: ifsc, branch: [payload.bank, payload.branch, payload.city].filter(Boolean).join(" · ") });
+        setBankName((current) => current.trim() ? current : payload.bank ?? current);
+      } catch {
+        // An aborted or failed lookup leaves the typed code alone; the format
+        // check still stands on its own at save time.
+      }
+    }, 400);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [ifsc]);
+
+  const resolvedIfsc = ifscLookup?.code === ifsc ? ifscLookup : null;
+  const ifscBranch = resolvedIfsc?.branch ?? null;
+  const ifscError = resolvedIfsc !== null && resolvedIfsc.branch === null;
   const bondDocument = isBondType(type);
   const draft = useMemo(() => ({
     type,
@@ -314,6 +343,11 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     if (!initialInvestment && !accountNumber) {
       setStep(5);
       toast.error("Enter the account the payouts are credited to");
+      return;
+    }
+    if (/\d/.test(resolvedBankName)) {
+      setStep(5);
+      toast.error("Bank name is invalid — it cannot contain numbers");
       return;
     }
     if (advisorMobile && !/^[6-9]\d{9}$/.test(advisorMobile)) {
@@ -373,7 +407,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     setInvestmentDate(new Date().toISOString().slice(0, 10)); setAmount(""); setRate("");
     setMaturityDate(""); setMaturityAmount(""); setInterestType("simple"); setCompoundingFrequency("quarterly"); setDayCountBasis("actual-365"); setFrequency("quarterly");
     setFirstPayoutDate(""); setTdsApplicable(false); setTdsRate(""); setPanLinked(false);
-    setDeclarationApplicable(false); setBankOption(""); setManualBankName(""); setIfsc(""); setAccountNumber(""); setPaymentMode("bank-transfer");
+    setDeclarationApplicable(false); setBankName(""); setIfsc(""); setIfscLookup(null); setAccountNumber(""); setPaymentMode("bank-transfer");
     setNominee(""); setBroker(""); setAdvisor(""); setAdvisorMobile(""); setNotes(""); setSelectedFile(null);
     setFaceValue(""); setInterestStartDate(""); setDpId(""); setClientId(""); setOrderReference("");
     setScannedFiles([]); setDealSheetFile(null); setScheduleFile(null); setScannedSchedule([]);
@@ -511,28 +545,37 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
               <FormHeading title="Account & references" description="Account and demat numbers are stored in full for reconciliation, and stay masked on screen." />
               <div className="field-grid">
                 <div className="form-field">
-                  <Label>Bank name</Label>
-                  <Select value={bankOption} onValueChange={setBankOption}>
-                    <SelectTrigger><SelectValue placeholder="Choose receiving bank" /></SelectTrigger>
-                    <SelectContent position="popper" className="bank-select-content">
-                      {indianBankGroups.map((group, index) => (
-                        <SelectGroup key={group.label}>
-                          {index > 0 && <SelectSeparator />}
-                          <SelectLabel>{group.label}</SelectLabel>
-                          {group.banks.map((bank) => <SelectItem value={bank} key={bank}>{bank}</SelectItem>)}
-                        </SelectGroup>
-                      ))}
-                      <SelectSeparator />
-                      <SelectItem value={MANUAL_BANK}>Other bank — enter manually</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="field-bank-name">Bank name</Label>
+                  <Input
+                    id="field-bank-name"
+                    value={bankName}
+                    onChange={(event) => setBankName(event.target.value)}
+                    placeholder="Type to search"
+                    list={BANK_SUGGESTIONS_ID}
+                    maxLength={100}
+                    aria-invalid={bankNameInvalid}
+                    autoComplete="off"
+                  />
+                  <datalist id={BANK_SUGGESTIONS_ID}>
+                    {allBanks.map((bank) => <option value={bank} key={bank} />)}
+                  </datalist>
+                  {bankNameInvalid && <p className="field-error">Invalid — a bank name cannot contain numbers.</p>}
                 </div>
-                {bankOption === MANUAL_BANK && (
-                  <div className="field-span-2">
-                    <Field label="Enter bank name" value={manualBankName} setValue={setManualBankName} placeholder="Type the receiving bank" maxLength={100} autoFocus />
-                  </div>
-                )}
-                <Field label="IFSC code" value={ifsc} setValue={(value) => setIfsc(value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11))} placeholder="e.g. HDFC0001234" autoCapitalize="characters" spellCheck={false} />
+                <div className="form-field">
+                  <Label htmlFor="field-ifsc">IFSC code</Label>
+                  <Input
+                    id="field-ifsc"
+                    value={ifsc}
+                    onChange={(event) => setIfsc(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11))}
+                    placeholder="e.g. HDFC0001234"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    autoComplete="off"
+                    aria-invalid={ifscError}
+                  />
+                  {ifscBranch && <p className="field-note">{ifscBranch}</p>}
+                  {ifscError && <p className="field-error">No branch found for this IFSC.</p>}
+                </div>
                 <MaskedField label="Receiving account number" value={accountNumber} setValue={(value) => setAccountNumber(value.replace(/\D/g, "").slice(0, 18))} inputMode="numeric" placeholder="Account the payouts are credited to" />
                 <div className="form-field"><Label>Payment mode</Label><Select value={paymentMode} onValueChange={setPaymentMode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="bank-transfer">Bank transfer</SelectItem><SelectItem value="cheque">Cheque</SelectItem><SelectItem value="broker-wallet">Broker wallet</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
                 <Field label="Nominee" value={nominee} setValue={setNominee} placeholder="Optional" />

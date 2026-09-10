@@ -45,7 +45,7 @@ const investmentInput = z.object({
   expectedTdsRateBps: z.number().int().min(0).max(10_000),
   panLinked: z.boolean().default(false),
   declarationApplicable: z.boolean().default(false),
-  bankName: z.string().trim().max(100).optional(),
+  bankName: z.string().trim().max(100).regex(/^[^\d]*$/, "Bank name cannot contain numbers").optional(),
   ifscCode: z.string().trim().toUpperCase().regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, "Enter a valid IFSC code").optional().or(z.literal("")),
   accountNumber: z.string().trim().regex(/^\d{9,18}$/, "Enter the full account number").optional().or(z.literal("")),
   /**
