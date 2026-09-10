@@ -111,8 +111,8 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
     ? [
       ["Invested", formatMoney(investment.principalPaise)],
       ["Units held", investment.units ? String(investment.units) : "—"],
-      ["Cost per unit", investment.costPerUnitPaise === undefined ? "—" : formatMoney(investment.costPerUnitPaise, 2)],
-      ["Current price", investment.currentPricePerUnitPaise === undefined ? "Not entered" : formatMoney(investment.currentPricePerUnitPaise, 2)],
+      ["Cost per unit", investment.costPerUnitPaise === undefined ? "—" : formatMoney(investment.costPerUnitPaise)],
+      ["Current price", investment.currentPricePerUnitPaise === undefined ? "Not entered" : formatMoney(investment.currentPricePerUnitPaise)],
       ["Current value", marketValue === null ? "Enter a price" : formatMoney(marketValue)],
       ["Gain / loss", marketValue === null ? "—" : formatMoney(marketValue - investment.principalPaise)],
       ["Paid in so far", formatMoney(totals.paid > 0n ? totals.paid : investment.principalPaise)],

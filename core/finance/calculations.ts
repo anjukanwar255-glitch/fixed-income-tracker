@@ -288,13 +288,13 @@ export function parseRupeesToPaise(value: string) {
   return BigInt(rupees) * 100n + BigInt((fraction + "00").slice(0, 2));
 }
 
-export function formatMoney(paise: bigint, maximumFractionDigits = 0) {
+export function formatMoney(paise: bigint, maximumFractionDigits = 2) {
   const isNegative = paise < 0n;
   const absolute = isNegative ? -paise : paise;
   const whole = absolute / 100n;
   const fraction = absolute % 100n;
   const formattedWhole = new Intl.NumberFormat("en-IN").format(Number(whole));
-  const decimal = maximumFractionDigits > 0
+  const decimal = maximumFractionDigits > 0 && fraction !== 0n
     ? `.${fraction.toString().padStart(2, "0").slice(0, maximumFractionDigits)}`
     : "";
   return `${isNegative ? "−" : ""}₹${formattedWhole}${decimal}`;

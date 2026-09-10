@@ -1,21 +1,17 @@
 import { env } from "@/lib/env";
 
 import { firstDoc, readDoc, subscriptions, userDoc } from "@/db";
+import { subscriptionPlans as plans, type PlanCode as Code } from "@/lib/plans";
 
-export type PlanCode = "monthly" | "half-yearly" | "yearly";
-
-export const subscriptionPlans = [
-  { code: "monthly" as const, label: "Monthly", amountPaise: 9_900, period: "monthly", interval: 1, totalCount: 1_200 },
-  { code: "half-yearly" as const, label: "6 months", amountPaise: 50_000, period: "monthly", interval: 6, totalCount: 200 },
-  { code: "yearly" as const, label: "Yearly", amountPaise: 80_000, period: "yearly", interval: 1, totalCount: 100 },
-] as const;
+export { subscriptionPlans, planSavingPercent } from "@/lib/plans";
+export type { PlanCode } from "@/lib/plans";
 
 export type Entitlement = {
   entitled: boolean;
   state: "onboarding" | "trial" | "subscribed" | "expired";
   trialEndsAt: string | null;
   daysRemaining: number;
-  planCode: PlanCode | null;
+  planCode: Code | null;
   subscriptionStatus: string | null;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
@@ -114,12 +110,12 @@ export function razorpayConfig() {
       monthly: env.RAZORPAY_PLAN_MONTHLY!,
       "half-yearly": env.RAZORPAY_PLAN_HALF_YEARLY!,
       yearly: env.RAZORPAY_PLAN_YEARLY!,
-    } satisfies Record<PlanCode, string>,
+    } satisfies Record<Code, string>,
   };
 }
 
 export function findPlan(code: string) {
-  return subscriptionPlans.find((plan) => plan.code === code) ?? null;
+  return plans.find((plan) => plan.code === code) ?? null;
 }
 
 export async function razorpayRequest<T>(path: string, init: RequestInit = {}) {

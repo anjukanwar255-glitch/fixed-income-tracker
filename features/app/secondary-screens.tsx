@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, CheckCircle2, DatabaseBackup, Download, Eye, EyeOff, Landmark, LogOut, Pencil, ReceiptIndianRupee, ShieldCheck, Trash2, UserRound } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, DatabaseBackup, Download, Eye, EyeOff, Landmark, LogOut, Pencil, ReceiptIndianRupee, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { deleteUser } from "firebase/auth";
 import { toast } from "sonner";
 
@@ -167,6 +167,11 @@ export function SubscriptionScreen({ entitlement, plans, displayName, email, pho
       </section>
 
       <div className="section-heading"><div><h2>{current ? "Change your plan" : "Choose a plan"}</h2><p>Every plan carries the same features; only the billing period differs</p></div></div>
+      {!entitlement.billingConfigured && (
+        <div className="mismatch-note">
+          <AlertTriangle /> Payments are not switched on yet, so the plans below cannot be bought. Nothing can be charged until then.
+        </div>
+      )}
       <PlanGrid
         plans={plans}
         entitlement={entitlement}
@@ -174,7 +179,6 @@ export function SubscriptionScreen({ entitlement, plans, displayName, email, pho
         currentPlan={entitlement.planCode}
         onChoose={(code) => void subscribe(code)}
       />
-      {!entitlement.billingConfigured && <p className="billing-setup-warning">Secure payments are being configured. No charge can be made until Razorpay live keys and plan IDs are connected.</p>}
 
       <section className="settings-card">
         <div className="section-heading"><div><h2>What stays yours</h2><p>Subscribed or not</p></div><ShieldCheck /></div>

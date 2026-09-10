@@ -6,12 +6,14 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/firebase-client";
-import type { Entitlement, PlanCode } from "@/lib/billing";
+import { planSavingPercent, type PlanCode } from "@/lib/plans";
+import type { Entitlement } from "@/lib/billing";
 
 export type Plan = {
   code: PlanCode;
   label: string;
   amountPaise: number;
+  monthsCovered: number;
   period: string;
   interval: number;
 };
@@ -93,17 +95,40 @@ export function PlanGrid({ plans, entitlement, busyPlan, onChoose, currentPlan }
     <div className="pricing-grid">
       {plans.map((plan) => {
         const active = currentPlan === plan.code;
+        const saving = planSavingPercent(plans, plan.code);
+        const perMonth = plan.monthsCovered > 1 ? plan.amountPaise / plan.monthsCovered / 100 : null;
+        const selectable = !active && entitlement.billingConfigured && busyPlan === null;
         return (
-          <article className="pricing-card" data-featured={plan.code === "yearly"} data-active={active} key={plan.code}>
-            {active ? <span className="pricing-badge">Current plan</span> : plan.code === "yearly" && <span className="pricing-badge">Best value</span>}
+          // The whole card is the target, not just the button at the bottom —
+          // a pricing card reads as one thing to tap, and on a phone the button
+          // is often the part that is scrolled off.
+          <article
+            className="pricing-card"
+            data-featured={plan.code === "yearly"}
+            data-active={active}
+            data-selectable={selectable}
+            key={plan.code}
+            role={selectable ? "button" : undefined}
+            tabIndex={selectable ? 0 : undefined}
+            onClick={selectable ? () => onChoose(plan.code) : undefined}
+            onKeyDown={selectable ? (event) => {
+              if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onChoose(plan.code); }
+            } : undefined}
+          >
+            {active
+              ? <span className="pricing-badge">Current plan</span>
+              : saving > 0 ? <span className="pricing-badge">Save {saving}%</span> : null}
             <h2>{plan.label}</h2>
             <p className="pricing-amount"><strong>₹{plan.amountPaise / 100}</strong><span>/{planPeriodLabel(plan.code)}</span></p>
+            {perMonth !== null && <p className="pricing-permonth">₹{perMonth.toFixed(2)} a month, billed {planPeriodLabel(plan.code) === "year" ? "yearly" : "every 6 months"}</p>}
             <ul><li><Check /> Unlimited investments</li><li><Check /> Encrypted Firebase backups</li><li><Check /> Payout and TDS tracking</li></ul>
             <Button
               className="w-full"
               variant={active ? "outline" : "default"}
               disabled={active || !entitlement.billingConfigured || busyPlan !== null}
-              onClick={() => onChoose(plan.code)}
+              // The card already handles the click; without this the button
+              // would fire it a second time and open two checkouts.
+              onClick={(event) => { event.stopPropagation(); onChoose(plan.code); }}
             >
               {active ? "Active" : busyPlan === plan.code ? "Opening secure checkout…" : `Choose ${plan.label}`}
             </Button>

@@ -269,7 +269,7 @@ type AccountProfile = {
 
 type BillingPayload = {
   entitlement: Entitlement;
-  plans: Array<{ code: PlanCode; label: string; amountPaise: number; period: string; interval: number }>;
+  plans: Array<{ code: PlanCode; label: string; amountPaise: number; monthsCovered: number; period: string; interval: number }>;
 };
 
 type Reminder = { id: string; category: "payout" | "maturity"; investmentId: string; dueDate: string; title: string; body: string };

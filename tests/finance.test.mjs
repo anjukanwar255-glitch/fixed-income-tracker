@@ -12,6 +12,7 @@ const tax = await vite.ssrLoadModule("/core/tax/declarations.ts");
 const identity = await vite.ssrLoadModule("/core/identity/user-reference.ts");
 const contributions = await vite.ssrLoadModule("/core/finance/contributions.ts");
 const scan = await vite.ssrLoadModule("/core/finance/scan-mapping.ts");
+const billing = await vite.ssrLoadModule("/lib/plans.ts");
 
 test("uses exact date accrual for a complete non-leap year", () => {
   assert.equal(finance.calculateInterestForDates(10_000_000n, 750, "2025-01-01", "2026-01-01", "actual-365"), 750_000n);
@@ -429,4 +430,35 @@ test("the Orange statement's own rows survive the document schedule intact", () 
   assert.equal(rows[0].principalRepaidPaise, 0n);
   // The final row is principal plus its last interest.
   assert.equal(rows[3].expectedNetPaise, 1_679_240n);
+});
+
+test("a longer plan's saving is measured against paying monthly for the same span", () => {
+  const plans = [
+    { code: "monthly", amountPaise: 9_900, monthsCovered: 1 },
+    { code: "half-yearly", amountPaise: 54_900, monthsCovered: 6 },
+    { code: "yearly", amountPaise: 99_900, monthsCovered: 12 },
+  ];
+  assert.equal(billing.planSavingPercent(plans, "monthly"), 0);
+  assert.equal(billing.planSavingPercent(plans, "half-yearly"), 7);
+  assert.equal(billing.planSavingPercent(plans, "yearly"), 15);
+});
+
+test("no saving is claimed where a longer plan costs the same or more", () => {
+  const plans = [
+    { code: "monthly", amountPaise: 9_900, monthsCovered: 1 },
+    { code: "yearly", amountPaise: 200_000, monthsCovered: 12 },
+  ];
+  assert.equal(billing.planSavingPercent(plans, "yearly"), 0);
+  assert.equal(billing.planSavingPercent(plans, "half-yearly"), 0);
+});
+
+test("paise are shown when there are any, and dropped when there are none", () => {
+  assert.equal(finance.formatMoney(97_671n), "₹976.71");
+  assert.equal(finance.formatMoney(97_670n), "₹976.70");
+  assert.equal(finance.formatMoney(100_000_020n), "₹10,00,000.20");
+  // A whole-rupee amount keeps no dead ".00".
+  assert.equal(finance.formatMoney(10_000_000n), "₹1,00,000");
+  assert.equal(finance.formatMoney(0n), "₹0");
+  assert.equal(finance.formatMoney(-97_671n), "−₹976.71");
+  assert.equal(finance.formatMoney(-10_000_000n), "−₹1,00,000");
 });
