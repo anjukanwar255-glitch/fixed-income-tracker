@@ -246,6 +246,7 @@ export function FixedIncomeApp() {
 
 type AccountProfile = {
   fullName: string;
+  displayId: string | null;
   email: string | null;
   panMasked: string | null;
   dateOfBirth: string | null;

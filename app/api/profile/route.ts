@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { activityLogs, commitAll, readDoc, setOp, trialClaims, updateOp, userDoc } from "@/db";
+import { formatUserReference } from "@/core/identity/user-reference";
 import { startTrial, trialIdentityHash } from "@/lib/billing";
 import { createUserBackup } from "@/lib/backups";
 import { authenticatedRequest, authenticatedUser } from "@/lib/firebase-auth";
@@ -51,6 +52,23 @@ export async function GET() {
 
   try {
     const stored = await readDoc(userDoc(owner.uid));
+
+    /*
+     * Accounts opened before references existed get theirs here, from the date
+     * they were actually created rather than from today — backfilling with the
+     * current year would stamp every older account with the wrong one. Written
+     * once; every read after this returns the stored value.
+     */
+    let displayId = stored?.displayId ?? null;
+    if (stored && !stored.deletedAt && !displayId) {
+      displayId = formatUserReference(owner.uid, stored.createdAt);
+      if (displayId) {
+        await userDoc(owner.uid).update({ displayId, updatedAt: new Date().toISOString() }).catch(() => {
+          // A reference that could not be saved is still correct to show; the
+          // next read tries again rather than blocking the profile.
+        });
+      }
+    }
     // Only these fields go to the client; the stored document also holds the
     // trial and consent timestamps, which the profile screen does not read.
     const profile = stored && !stored.deletedAt
@@ -60,6 +78,7 @@ export async function GET() {
         panMasked: stored.panMasked ?? null,
         dateOfBirth: stored.dateOfBirth ?? null,
         mobileE164: stored.mobileE164 ?? null,
+        displayId,
       }
       : null;
 
@@ -115,6 +134,7 @@ export async function POST(request: Request) {
       })
       : setOp(userDoc(owner.uid), {
         id: owner.uid,
+        displayId: formatUserReference(owner.uid, now),
         fullName: input.fullName,
         email: input.email || owner.email,
         mobileE164: owner.phoneNumber,

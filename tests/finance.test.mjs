@@ -9,6 +9,7 @@ after(async () => vite.close());
 const finance = await vite.ssrLoadModule("/core/finance/calculations.ts");
 const files = await vite.ssrLoadModule("/lib/file-validation.ts");
 const tax = await vite.ssrLoadModule("/core/tax/declarations.ts");
+const identity = await vite.ssrLoadModule("/core/identity/user-reference.ts");
 
 test("uses exact date accrual for a complete non-leap year", () => {
   assert.equal(finance.calculateInterestForDates(10_000_000n, 750, "2025-01-01", "2026-01-01", "actual-365"), 750_000n);
@@ -263,4 +264,16 @@ test("a rejected declaration leaves the year uncovered", () => {
 test("nothing is pending where no declaration applies or the holding has closed", () => {
   assert.equal(tax.declarationPending({ declarationApplicable: false, status: "active", forms: [] }, "2026-27"), false);
   assert.equal(tax.declarationPending({ declarationApplicable: true, status: "matured", forms: [] }, "2026-27"), false);
+});
+
+test("an account reference carries the opening year and the last four of the uid", () => {
+  assert.equal(
+    identity.formatUserReference("k3Jd8fFhZ2aQxYbN1mLp0Rta3f9", "2026-09-10T06:12:00.000Z"),
+    "PORT-2026-A3F9",
+  );
+});
+
+test("a reference is refused rather than built from an unusable uid or date", () => {
+  assert.equal(identity.formatUserReference("abc", "2026-09-10T00:00:00.000Z"), null);
+  assert.equal(identity.formatUserReference("k3Jd8fFhZ2aQ", ""), null);
 });

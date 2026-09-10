@@ -30,6 +30,12 @@ export interface UserDoc extends Timestamps {
   /** The Firebase uid. Duplicated from the document id so reads carry it. */
   id: string;
   fullName: string;
+  /**
+   * The reference the investor quotes, e.g. `PORT-2026-A3F9`. Assigned once
+   * and never recomputed: a reference that has been written down cannot change
+   * because the format later did.
+   */
+  displayId?: string | null;
   /** Full E.164 number, e.g. `+919876543210`. Masked at render, never logged. */
   mobileE164?: string | null;
   email?: string | null;
