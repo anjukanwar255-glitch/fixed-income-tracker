@@ -12,7 +12,15 @@ export const dynamic = "force-dynamic";
  * actually behaves. They are read together in one pass so the model can
  * reconcile them, rather than scanned separately and merged afterwards.
  */
-const MAX_DOCUMENTS = 3;
+const DOCUMENT_ROLES = ["deal", "schedule"] as const;
+type DocumentRole = (typeof DOCUMENT_ROLES)[number];
+
+const ROLE_LABELS: Record<DocumentRole, string> = {
+  deal: "Deal sheet, contract note, bond agreement or deposit receipt — the terms as issued",
+  schedule: "Repayment or interest schedule — the payments as they fall due",
+};
+
+const MAX_DOCUMENTS = DOCUMENT_ROLES.length;
 
 /**
  * Reads certificates and statements and returns the add-investment form's
@@ -42,27 +50,31 @@ export async function POST(request: Request) {
     return Response.json({ error: `Upload up to ${MAX_DOCUMENTS} files, each a PDF, JPG, JPEG or PNG up to 10 MB` }, { status: 413 });
   }
 
-  let files: File[];
+  // Each document arrives under the field name describing what it is, so the
+  // reader is told which paper is which instead of inferring it. A statement
+  // and a deal sheet overlap heavily but disagree in places, and knowing which
+  // is which is what decides who wins.
+  let attached: { role: DocumentRole; file: File }[];
   try {
     const form = await request.formData();
-    files = form.getAll("documents").filter((entry): entry is File => entry instanceof File);
+    attached = DOCUMENT_ROLES.flatMap((role) => {
+      const entry = form.get(role);
+      return entry instanceof File ? [{ role, file: entry }] : [];
+    });
   } catch {
     return Response.json({ error: "The upload could not be read" }, { status: 400 });
   }
 
-  if (!files.length) return Response.json({ error: "Attach at least one document" }, { status: 400 });
-  if (files.length > MAX_DOCUMENTS) {
-    return Response.json({ error: `Attach at most ${MAX_DOCUMENTS} documents` }, { status: 400 });
-  }
+  if (!attached.length) return Response.json({ error: "Attach at least one document" }, { status: 400 });
 
   // The same content-signature and structural checks uploads use: the declared
   // type is not trusted, and an active PDF is rejected before anything reads
   // it. These are never stored, so there is no filename to agree with.
   const sources: ScanSource[] = [];
-  for (const file of files) {
+  for (const { role, file } of attached) {
     try {
       const validated = await validateDocumentBytes(await file.arrayBuffer(), file.type);
-      sources.push({ bytes: validated.bytes, mimeType: validated.mimeType });
+      sources.push({ bytes: validated.bytes, mimeType: validated.mimeType, label: ROLE_LABELS[role] });
     } catch (error) {
       return Response.json({ error: error instanceof Error ? error.message : "The file is not valid" }, { status: 400 });
     }

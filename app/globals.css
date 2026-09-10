@@ -380,3 +380,15 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .masked-field button:hover { background:#eef3f7; color:#0b7770; }
 .masked-field button:focus-visible { outline:2px solid #0b7770; outline-offset:1px; }
 .masked-field svg { height:16px; width:16px; }
+
+/* Named document slots. Each says what belongs in it, and shows what arrived,
+   so which paper is which never has to be guessed. */
+.scan-slots { display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); }
+.scan-slot { align-items:center; background:#f8fafc; border:1px dashed #b9c8d5; border-radius:14px; cursor:pointer; display:flex; flex-direction:column; justify-content:center; min-height:104px; padding:14px 12px; text-align:center; }
+.scan-slot[data-filled="true"] { background:#effaf7; border-color:#0b7770; border-style:solid; }
+.scan-slot input { height:1px; opacity:0; position:absolute; width:1px; }
+.scan-slot svg { color:#0b7770; height:22px; margin-bottom:7px; width:22px; }
+.scan-slot b { font-size:.78rem; }
+.scan-slot small { color:#78899a; font-size:.67rem; margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.scan-note { align-items:center; color:#78899a; display:flex; font-size:.7rem; gap:6px; margin:9px 0 2px; }
+.scan-note svg { height:13px; width:13px; }

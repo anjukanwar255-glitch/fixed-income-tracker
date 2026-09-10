@@ -108,7 +108,12 @@ export function isDocumentScanConfigured() {
   return env.DOCUMENT_SCAN_ENABLED === "true";
 }
 
-export type ScanSource = { bytes: ArrayBuffer; mimeType: string };
+export type ScanSource = {
+  bytes: ArrayBuffer;
+  mimeType: string;
+  /** What this document is, so the reader need not infer it. */
+  label: string;
+};
 
 /**
  * Reads one or more documents describing the same investment.
@@ -125,9 +130,12 @@ export async function scanInvestmentDocuments(sources: ScanSource[]): Promise<Sc
       {
         role: "user",
         parts: [
-          ...sources.map(({ bytes, mimeType }) => ({
-            inlineData: { mimeType, data: Buffer.from(bytes).toString("base64") },
-          })),
+          // Each file is introduced by what it is, so the reader knows which
+          // paper it is looking at rather than guessing from the letterhead.
+          ...sources.flatMap(({ bytes, mimeType, label }) => [
+            { text: `Document: ${label}` },
+            { inlineData: { mimeType, data: Buffer.from(bytes).toString("base64") } },
+          ]),
           { text: INSTRUCTIONS },
         ],
       },

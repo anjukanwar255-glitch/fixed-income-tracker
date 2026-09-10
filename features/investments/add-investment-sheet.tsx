@@ -55,8 +55,6 @@ const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const allowedDocumentTypes = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png"]);
 const knownBanks: Set<string> = new Set(indianBankGroups.flatMap((group) => group.banks));
 const ISSUER_SUGGESTIONS_ID = "issuer-bank-suggestions";
-/** A deal sheet, a repayment schedule, and room for one more. */
-const MAX_SCAN_DOCUMENTS = 3;
 
 const payoutOptions: { value: PayoutFrequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
@@ -116,69 +114,68 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
    * asking for them a second time is asking for the same files twice.
    */
   const [scannedFiles, setScannedFiles] = useState<File[]>([]);
+  /**
+   * The two documents are held in named slots rather than one heap, so it is
+   * clear which paper is which — both to whoever is filling the form and to
+   * the reader, which is told the role of each file it is given.
+   */
+  const [dealSheetFile, setDealSheetFile] = useState<File | null>(null);
+  const [scheduleFile, setScheduleFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
 
   /**
-   * Reads a certificate and fills in what it finds.
+   * Reads the attached documents and writes what they say into the form.
    *
-   * Only empty fields are written, so a scan can never overwrite something
-   * already typed, and the result is left in the form for the investor to
-   * check rather than saved. Every field the document did not yield stays
-   * blank instead of being guessed at.
+   * A scan replaces the fields it finds rather than only filling blanks. The
+   * earlier behaviour left the first scan's mistakes in place — re-scanning
+   * could not correct a wrong value, because the field was no longer empty —
+   * which is the opposite of what someone re-scanning is asking for. Fields
+   * the documents do not mention are left exactly as they were.
+   *
+   * Nothing is saved. The values land in the form for checking against the
+   * papers in front of the investor.
    */
-  const scanDocuments = async (files: File[]) => {
-    if (!files.length) return;
-    if (files.length > MAX_SCAN_DOCUMENTS) {
-      toast.error(`Attach at most ${MAX_SCAN_DOCUMENTS} documents`);
-      return;
-    }
-    if (files.some((file) => !allowedDocumentTypes.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES)) {
-      toast.error("Each file must be a PDF, JPG, JPEG or PNG up to 10 MB");
-      return;
-    }
-    // A bond takes two documents to describe: the deal sheet names the issuer,
-    // coupon and price, while the schedule shows how interest behaves month to
-    // month. One alone leaves fields the other would have filled — worth
-    // saying, but not worth refusing to read what they did attach.
-    if (bondDocument && files.length === 1) {
-      toast.warning("Scanning one document. The deal sheet and the repayment schedule together fill far more.");
-    }
+  const runScan = async (sources: { deal: File | null; schedule: File | null }) => {
+    const attached = [
+      sources.deal ? { role: "deal" as const, file: sources.deal } : null,
+      sources.schedule ? { role: "schedule" as const, file: sources.schedule } : null,
+    ].filter((entry) => entry !== null);
+
+    if (!attached.length) return;
     setScanning(true);
     try {
       const form = new FormData();
-      for (const file of files) form.append("documents", file);
+      for (const { role, file } of attached) form.append(role, file);
       // No content-type header: the browser sets the multipart boundary.
       const response = await apiFetch("/api/investments/scan", { method: "POST", body: form });
       const payload = await response.json() as { fields?: Record<string, unknown>; error?: string };
       if (!response.ok || !payload.fields) throw new Error(payload.error ?? "The documents could not be read");
 
       const found = payload.fields;
-      const fillText = (value: unknown, current: string, set: (next: string) => void) => {
-        if (typeof value === "string" && value && !current) { set(value); return true; }
-        return false;
+      let filled = 0;
+      const applyText = (value: unknown, set: (next: string) => void) => {
+        if (typeof value === "string" && value) { set(value); filled += 1; }
       };
-      const fillNumber = (value: unknown, current: string, set: (next: string) => void) => {
-        if (typeof value === "number" && !current) { set(String(value)); return true; }
-        return false;
+      const applyNumber = (value: unknown, set: (next: string) => void) => {
+        if (typeof value === "number") { set(String(value)); filled += 1; }
       };
 
-      let filled = 0;
-      filled += Number(fillText(found.investmentName, name, setName));
-      filled += Number(fillText(found.issuerName, issuer, setIssuer));
-      filled += Number(fillText(found.investmentNumber, number, setNumber));
-      filled += Number(fillText(found.brokerName, broker, setBroker));
-      filled += Number(fillText(found.dpId, dpId, setDpId));
-      filled += Number(fillText(found.clientId, clientId, setClientId));
-      filled += Number(fillText(found.orderReference, orderReference, setOrderReference));
-      filled += Number(fillText(found.investmentDate, "", setInvestmentDate));
-      filled += Number(fillNumber(found.amountPaidRupees, amount, setAmount));
-      filled += Number(fillNumber(found.faceValueRupees, faceValue, setFaceValue));
-      filled += Number(fillNumber(found.expectedMaturityRupees, maturityAmount, setMaturityAmount));
-      filled += Number(fillNumber(found.interestRatePercent, rate, setRate));
-      filled += Number(fillText(found.firstPayoutDate, firstPayoutDate, setFirstPayoutDate));
-      filled += Number(fillText(found.maturityDate, maturityDate, setMaturityDate));
-      filled += Number(fillText(found.notes, notes, setNotes));
+      applyText(found.investmentName, setName);
+      applyText(found.issuerName, setIssuer);
+      applyText(found.investmentNumber, setNumber);
+      applyText(found.brokerName, setBroker);
+      applyText(found.dpId, setDpId);
+      applyText(found.clientId, setClientId);
+      applyText(found.orderReference, setOrderReference);
+      applyText(found.investmentDate, setInvestmentDate);
+      applyNumber(found.amountPaidRupees, setAmount);
+      applyNumber(found.faceValueRupees, setFaceValue);
+      applyNumber(found.expectedMaturityRupees, setMaturityAmount);
+      applyNumber(found.interestRatePercent, setRate);
+      applyText(found.firstPayoutDate, setFirstPayoutDate);
+      applyText(found.maturityDate, setMaturityDate);
+      applyText(found.notes, setNotes);
 
       const scannedFrequency = typeof found.payoutFrequency === "string" ? found.payoutFrequency as PayoutFrequency : null;
       if (scannedFrequency) { setFrequency(scannedFrequency); filled += 1; }
@@ -190,31 +187,45 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
        * landed part-way through a coupon period, so interest runs from the
        * previous coupon date rather than from the purchase.
        *
-       * That date is derived here rather than asked for: stepping one period
+       * The date is derived here rather than asked for: stepping one period
        * back from the first payout is exact, where having the model divide an
        * accrued amount by a daily rate is arithmetic it can quietly get wrong.
-       * A date the documents state outright is still preferred over the
-       * derived one.
+       * A date the documents state outright is still preferred.
        */
       const statedStart = typeof found.interestStartDate === "string" ? found.interestStartDate : null;
       const paidAccruedInterest = typeof found.accruedInterestPaidRupees === "number" && found.accruedInterestPaidRupees > 0;
-      const nextFirstPayout = typeof found.firstPayoutDate === "string" ? found.firstPayoutDate : firstPayoutDate;
-      const derivedStart = paidAccruedInterest && nextFirstPayout && scannedFrequency
-        ? previousCouponDate(nextFirstPayout, scannedFrequency)
+      const scannedFirstPayout = typeof found.firstPayoutDate === "string" ? found.firstPayoutDate : null;
+      const derivedStart = paidAccruedInterest && scannedFirstPayout && scannedFrequency
+        ? previousCouponDate(scannedFirstPayout, scannedFrequency)
         : null;
-      filled += Number(fillText(statedStart ?? derivedStart, interestStartDate, setInterestStartDate));
+      applyText(statedStart ?? derivedStart, setInterestStartDate);
 
       // These are the papers this investment should be filed with, so they
       // carry through to the documents step instead of being asked for twice.
+      const files = attached.map((entry) => entry.file);
       setScannedFiles(files);
-      if (!selectedFile) setSelectedFile(files[0]);
+      setSelectedFile(files[0]);
 
-      toast.success(filled ? `Filled ${filled} field${filled === 1 ? "" : "s"} — check each one against the documents` : "Nothing could be read from those documents");
+      toast.success(filled
+        ? `Read ${filled} field${filled === 1 ? "" : "s"} — check each against the documents`
+        : "Nothing could be read from those documents");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "The documents could not be read");
     } finally {
       setScanning(false);
     }
+  };
+
+  /** Accepts one document into its slot and re-reads whatever is attached. */
+  const attachForScan = (role: "deal" | "schedule", file: File | null) => {
+    if (!file) return;
+    if (!allowedDocumentTypes.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES) {
+      toast.error("Each file must be a PDF, JPG, JPEG or PNG up to 10 MB");
+      return;
+    }
+    const next = { deal: dealSheetFile, schedule: scheduleFile, [role]: file };
+    if (role === "deal") setDealSheetFile(file); else setScheduleFile(file);
+    void runScan(next);
   };
 
   const resolvedBankName = bankOption === MANUAL_BANK ? manualBankName.trim() : bankOption;
@@ -342,30 +353,36 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
           {step === 2 && (
             <div className="form-section">
               <FormHeading title="Investment details" description="Enter the values shown on the receipt or certificate." />
-              <label className="upload-zone">
-                <input
-                  type="file"
-                  multiple
-                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+              {/*
+                Two named slots rather than one heap of files. Which paper is
+                which stops being a guess — for whoever is filling the form,
+                and for the reader, which is told the role of each document and
+                can prefer the deal sheet's terms over a statement's summary.
+                A deposit has only one paper, so it gets one slot.
+              */}
+              <div className="scan-slots">
+                <ScanSlot
+                  label={bondDocument ? "Deal sheet or bond agreement" : "Deposit receipt or certificate"}
+                  hint={bondDocument ? "Issuer, coupon rate, price breakdown" : "The terms as issued"}
+                  file={dealSheetFile}
                   disabled={scanning}
-                  onChange={(event) => {
-                    const files = Array.from(event.target.files ?? []);
-                    event.currentTarget.value = "";
-                    void scanDocuments(files);
-                  }}
+                  onSelect={(file) => attachForScan("deal", file)}
                 />
-                {scanning ? <Loader2 className="spinning" aria-hidden="true" /> : <ScanLine aria-hidden="true" />}
-                <b>{scanning ? "Reading the documents…" : bondDocument ? "Attach both documents to scan" : "Scan a receipt or certificate"}</b>
-                {bondDocument ? (
-                  <span className="scan-wanted">
-                    <i>Deal sheet or bond agreement</i>
-                    <i>Repayment or interest schedule</i>
-                  </span>
-                ) : (
-                  <span>The deposit receipt or certificate</span>
+                {bondDocument && (
+                  <ScanSlot
+                    label="Repayment or interest schedule"
+                    hint="Payout dates and amounts"
+                    file={scheduleFile}
+                    disabled={scanning}
+                    onSelect={(file) => attachForScan("schedule", file)}
+                  />
                 )}
-                <span>Select both together · every value is yours to check before saving</span>
-              </label>
+              </div>
+              <p className="scan-note">
+                {scanning
+                  ? <><Loader2 className="spinning" aria-hidden="true" /> Reading the documents…</>
+                  : "Each document is read as soon as it is attached, and re-read when the other arrives. Every value is yours to check before saving."}
+              </p>
               <div className="field-grid">
                 <Field label="Investment name" value={name} setValue={setName} placeholder="e.g. Secure Income FD" />
                 {/*
@@ -453,7 +470,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                   </Select>
                 </div>
                 {bankOption === MANUAL_BANK && <Field label="Enter bank name" value={manualBankName} setValue={setManualBankName} placeholder="Type the receiving bank" maxLength={100} autoFocus />}
-                <Field label="Account last 4 digits" value={accountLast4} setValue={(value) => setAccountLast4(value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" placeholder="1234" />
+                <MaskedField label="Account last 4 digits" value={accountLast4} setValue={(value) => setAccountLast4(value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" placeholder="1234" />
                 <div className="form-field"><Label>Payment mode</Label><Select value={paymentMode} onValueChange={setPaymentMode}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="bank-transfer">Bank transfer</SelectItem><SelectItem value="cheque">Cheque</SelectItem><SelectItem value="broker-wallet">Broker wallet</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
                 <Field label="Nominee" value={nominee} setValue={setNominee} placeholder="Optional" />
                 <Field label="Broker / platform" value={broker} setValue={setBroker} placeholder="Who the purchase went through" maxLength={100} />
@@ -555,6 +572,33 @@ function Field({ label, value, setValue, ...props }: { label: string; value: str
  * whole, because reconciling a holding against the depository needs them whole;
  * it is only the display that is guarded.
  */
+/** One named document slot, showing what belongs in it and what is in it. */
+function ScanSlot({ label, hint, file, disabled, onSelect }: {
+  label: string;
+  hint: string;
+  file: File | null;
+  disabled: boolean;
+  onSelect: (file: File | null) => void;
+}) {
+  return (
+    <label className="scan-slot" data-filled={file !== null}>
+      <input
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+        disabled={disabled}
+        onChange={(event) => {
+          const next = event.target.files?.[0] ?? null;
+          event.currentTarget.value = "";
+          onSelect(next);
+        }}
+      />
+      {file ? <Check aria-hidden="true" /> : <ScanLine aria-hidden="true" />}
+      <b>{label}</b>
+      <small>{file ? file.name : hint}</small>
+    </label>
+  );
+}
+
 function MaskedField({ label, value, setValue, ...props }: { label: string; value: string; setValue: (value: string) => void } & Omit<React.ComponentProps<typeof Input>, "value" | "onChange" | "type">) {
   const [revealed, setRevealed] = useState(false);
   const id = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
