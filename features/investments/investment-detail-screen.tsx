@@ -9,6 +9,7 @@ import {
   Clock3,
   DoorOpen,
   Download,
+  Eye,
   FileText,
   History,
   Pencil,
@@ -34,7 +35,7 @@ import { earnsInterest, holdsUnits, providesCover } from "@/core/data/investment
 import { closurePosition, hasMatured } from "@/core/finance/closure";
 import { PayoutConfirmDialog, type PayoutTarget } from "@/features/investments/payout-confirm-dialog";
 import { IssuerMark } from "@/components/issuer-mark";
-import { apiFetch, downloadDocument, uploadDocumentFile } from "@/lib/firebase-client";
+import { apiFetch, downloadDocument, uploadDocumentFile, viewDocument } from "@/lib/firebase-client";
 import type { PayoutProjection, PortfolioInvestment } from "@/core/models/financial";
 
 type Props = {
@@ -307,6 +308,14 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
     }
   };
 
+  const openDocument = async (documentId: string) => {
+    try {
+      await viewDocument(documentId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Document could not be opened");
+    }
+  };
+
   const uploadDocument = async (file?: File) => {
     if (!file) return;
     if (!allowedDocumentTypes.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES) {
@@ -416,7 +425,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
           <SectionTitle title="Documents" description="Private files linked to this investment" />
           <div className="document-list">
             {investment.documents.map((document) => (
-              <div className="document-row" key={document.id}><span><FileText /><b>{document.documentName}</b><small>{labelType(document.documentType)} · {formatBytes(document.sizeBytes)}</small></span><span className="document-actions"><Button variant="ghost" size="icon" aria-label={`Download ${document.documentName}`} onClick={() => void saveDocument(document.id, document.documentName)}><Download /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${document.documentName}`} onClick={() => void deleteDocument(document.id)}><Trash2 /></Button></span></div>
+              <div className="document-row" key={document.id}><span><FileText /><b>{document.documentName}</b><small>{labelType(document.documentType)} · {formatBytes(document.sizeBytes)}</small></span><span className="document-actions"><Button variant="ghost" size="icon" aria-label={`View ${document.documentName}`} onClick={() => void openDocument(document.id)}><Eye /></Button><Button variant="ghost" size="icon" aria-label={`Download ${document.documentName}`} onClick={() => void saveDocument(document.id, document.documentName)}><Download /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${document.documentName}`} onClick={() => void deleteDocument(document.id)}><Trash2 /></Button></span></div>
             ))}
             {!investment.documents.length && <InlineEmpty icon={FileText} title="No documents uploaded" detail="Add a PDF, JPG, JPEG or PNG up to 10 MB." />}
           </div>

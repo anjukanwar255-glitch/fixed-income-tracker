@@ -685,3 +685,22 @@ test("a year's months run April to March", () => {
   assert.equal(months[0].month, "2026-04-01");
   assert.equal(months.at(-1).month, "2027-03-01");
 });
+
+test("a statement is not refused because its compressed bytes look like a key", () => {
+  /*
+   * The check reads the whole file as text, compressed streams included. Two
+   * character keys turn up in that binary by chance, and an ordinary
+   * statement was being rejected as scripted — refusing the very documents
+   * this app exists to keep.
+   */
+  const withBinaryNoise = "%PDF-1.4\nstream\n\x9c/AA\x1f/JS\x04/OpenAction\x7f\nendstream\n%%EOF";
+  const statement = new File([withBinaryNoise], "statement.pdf", { type: "application/pdf" });
+  return files.validateDocumentFile(statement);
+});
+
+test("a PDF that really runs something is still refused", async () => {
+  for (const payload of ["/JavaScript (app.alert)", "/Launch <</F(cmd)>>", "/EmbeddedFile /x", "/RichMedia <<>>"]) {
+    const unsafe = new File([`%PDF-1.4\n${payload}\n%%EOF`], "unsafe.pdf", { type: "application/pdf" });
+    await assert.rejects(() => files.validateDocumentFile(unsafe), /scripted PDF/i, payload);
+  }
+});

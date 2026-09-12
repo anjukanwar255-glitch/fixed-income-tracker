@@ -96,6 +96,31 @@ export async function isRecaptchaReachable(): Promise<boolean> {
  * A plain `<a href>` cannot carry the bearer token, so the bytes are fetched
  * with credentials attached and handed to the browser as an object URL.
  */
+/**
+ * Opens a stored document in a new tab.
+ *
+ * The tab is opened before the fetch, not after it. A window opened once an
+ * await has returned is no longer attributable to the click that started it,
+ * and browsers block it as unsolicited — so the tab is claimed up front and
+ * pointed at the file once it arrives.
+ */
+export async function viewDocument(documentId: string): Promise<void> {
+  const tab = window.open("", "_blank");
+  if (!tab) throw new Error("Allow pop-ups for this site to view documents");
+  try {
+    const response = await apiFetch(`/api/documents/download/${documentId}`);
+    if (!response.ok) throw new Error("Document could not be opened");
+    const objectUrl = URL.createObjectURL(await response.blob());
+    tab.location.href = objectUrl;
+    // Held long enough for the tab to load it; revoking straight away leaves
+    // the new tab with nothing to show.
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (error) {
+    tab.close();
+    throw error;
+  }
+}
+
 export async function downloadDocument(documentId: string, fileName: string): Promise<void> {
   const response = await apiFetch(`/api/documents/download/${documentId}`);
   if (!response.ok) throw new Error("Document could not be downloaded");

@@ -87,10 +87,11 @@ function validatePdf(data: Uint8Array) {
   const tail = new TextDecoder("latin1").decode(data.slice(Math.max(0, data.length - 2_048)));
   if (!tail.includes("%%EOF")) throw new Error("The PDF appears incomplete or damaged");
 
-  // Private tracker documents do not need active PDF features. Blocking these
-  // removes the highest-risk script, launch and automatic-action primitives.
+  // Private tracker documents do not need active PDF features. These are the
+  // primitives that actually run something, and each must appear as a
+  // dictionary key — followed by a PDF delimiter — to count.
   const text = new TextDecoder("latin1").decode(data);
-  if (/\/(JavaScript|JS|Launch|OpenAction|AA|RichMedia)\b/i.test(text)) {
+  if (/\/(JavaScript|Launch|RichMedia|EmbeddedFile)[\s/<[(]/.test(text)) {
     throw new Error("Active or scripted PDF files are not accepted");
   }
 }
