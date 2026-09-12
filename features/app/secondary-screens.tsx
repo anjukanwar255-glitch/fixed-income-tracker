@@ -20,6 +20,7 @@ import { apiFetch, getFirebaseAuth } from "@/lib/firebase-client";
 import type { Entitlement } from "@/lib/billing";
 import { PlanGrid, type Plan, planPeriodLabel, usePlanCheckout } from "@/features/billing/plan-checkout";
 import { PayoutConfirmDialog, type PayoutTarget } from "@/features/investments/payout-confirm-dialog";
+import { assessmentYear } from "@/core/tax/declarations";
 import { IssuerMark } from "@/components/issuer-mark";
 
 type PayoutFilter = "upcoming" | "due" | "received" | "not-received" | "all";
@@ -132,7 +133,7 @@ export function TdsScreen({ investments, onOpenInvestment, financialYear }: { in
 
   return (
     <div className="screen secondary-screen">
-      <header className="screen-header"><div><p className="screen-kicker">{financialYear}</p><h1>TDS reconciliation</h1></div></header>
+      <header className="screen-header"><div><p className="screen-kicker">{financialYear}{assessmentYear(financialYear) ? ` · filed in ${assessmentYear(financialYear)}` : ""}</p><h1>TDS reconciliation</h1></div></header>
       <div className="tds-metric-grid">
         <div><span>Expected TDS</span><strong>{formatMoney(expected)}</strong><small>From calculated payouts</small></div>
         <div><span>Actual deducted</span><strong>{formatMoney(actual)}</strong><small>Entered with payout confirmation</small></div>

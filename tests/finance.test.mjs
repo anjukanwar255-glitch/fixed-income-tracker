@@ -704,3 +704,14 @@ test("a PDF that really runs something is still refused", async () => {
     await assert.rejects(() => files.validateDocumentFile(unsafe), /scripted PDF/i, payload);
   }
 });
+
+test("the assessment year is the one after the financial year", () => {
+  // Income earned in FY 2026-27 is assessed in AY 2027-28.
+  assert.equal(tax.assessmentYear("FY 2026-27"), "AY 2027-28");
+  assert.equal(tax.assessmentYear(finance.calculateFinancialYear("2026-09-13")), "AY 2027-28");
+  // A payout on 31 March falls in the year that is ending, not the next one.
+  assert.equal(tax.assessmentYear(finance.calculateFinancialYear("2027-03-31")), "AY 2027-28");
+  // And one the next day belongs to the year that has just begun.
+  assert.equal(tax.assessmentYear(finance.calculateFinancialYear("2027-04-01")), "AY 2028-29");
+  assert.equal(tax.assessmentYear("not a year"), null);
+});

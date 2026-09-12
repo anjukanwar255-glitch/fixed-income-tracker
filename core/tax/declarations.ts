@@ -19,6 +19,13 @@ export const DECLARATION_FORM_TYPE = "Form 121";
 export const TDS_RATE_WITH_PAN_BPS = 1000;
 export const TDS_RATE_WITHOUT_PAN_BPS = 2000;
 
+export function assessmentYear(financialYear: string) {
+  const start = financialYear.match(/(\d{4})/)?.[1];
+  if (!start) return null;
+  const next = Number(start) + 1;
+  return `AY ${next}-${String(next + 1).slice(-2)}`;
+}
+
 /** Statuses a filed declaration can be in. "Required" is never stored. */
 export const DECLARATION_STATUSES = ["submitted", "accepted", "rejected", "expired"] as const;
 export type DeclarationStatus = (typeof DECLARATION_STATUSES)[number];
