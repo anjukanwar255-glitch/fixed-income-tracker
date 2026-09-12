@@ -2,7 +2,6 @@
 
 import {
   AlertTriangle,
-  ArrowUpRight,
   CalendarClock,
   CheckCircle2,
   ChevronRight,
@@ -28,7 +27,6 @@ type DashboardProps = {
   financialYear: string;
   investments: PortfolioInvestment[];
   onOpenInvestment: (id: string) => void;
-  onViewInvestments: () => void;
   onAddInvestment: () => void;
 };
 
@@ -37,7 +35,6 @@ export function DashboardScreen({
   financialYear,
   investments,
   onOpenInvestment,
-  onViewInvestments,
   onAddInvestment,
 }: DashboardProps) {
   const today = new Date().toISOString().slice(0, 10);
@@ -53,10 +50,6 @@ export function DashboardScreen({
   const pendingInterest = expectedInterest > receivedInterest ? expectedInterest - receivedInterest : 0n;
   const actualTds = receivedPayouts.reduce((sum, payout) => sum + (payout.actualTdsPaise ?? 0n), 0n);
   const reflectedTds = fyPayouts.reduce((sum, payout) => sum + (payout.reflectedAmountPaise ?? 0n), 0n);
-  const upcoming = fyPayouts
-    .filter((payout) => payout.status === "upcoming" || payout.status === "due-today" || payout.status === "overdue")
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-    .slice(0, 3);
   const nextMaturity = investments.filter((item) => item.status === "active" && item.maturityDate >= today).sort((a, b) => a.maturityDate.localeCompare(b.maturityDate))[0];
   const overdueCount = fyPayouts.filter((payout) => payout.status === "overdue" || payout.status === "not-received").length;
   const tdsMismatch = fyPayouts.reduce((sum, payout) => payout.tdsStatus === "mismatch"
@@ -121,48 +114,20 @@ export function DashboardScreen({
 
       <CashflowStrip investments={investments} financialYear={financialYear} onOpenInvestment={onOpenInvestment} />
 
-      <section className="content-section">
-        <div className="section-heading">
-          <div>
-            <h2>Upcoming payouts</h2>
-            <p>Expected amounts — confirm after bank credit</p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onViewInvestments}>View all <ArrowUpRight /></Button>
-        </div>
-
-        <div className="payout-list">
-          {upcoming.map((payout) => (
-            <button className="payout-row" key={`${payout.investment.id}-${payout.id}`} onClick={() => onOpenInvestment(payout.investment.id)}>
-              <span className="issuer-avatar">{payout.investment.issuer.slice(0, 1)}</span>
-              <span className="payout-copy">
-                <b>{payout.investment.name}</b>
-                <span>{payout.investment.issuer} · {formatDate(payout.dueDate)}</span>
-              </span>
-              <span className="payout-amount">
-                <b>{formatMoney(payout.expectedNetPaise)}</b>
-                <span>{formatMoney(payout.grossInterestPaise)} gross</span>
-              </span>
-              <ChevronRight aria-hidden="true" />
-            </button>
-          ))}
-          {!upcoming.length && <div className="inline-empty"><CalendarClock /><span><b>No upcoming payouts</b><small>No expected payout is scheduled in this financial year.</small></span></div>}
-        </div>
-      </section>
-
       <section className="content-section attention-section">
         <div className="section-heading">
           <div>
             <h2>Attention required</h2>
             <p>Items that need your confirmation</p>
           </div>
-          <span className="attention-count">{attentionCount}</span>
+          <span className="attention-count" data-clear={attentionCount === 0 || undefined}>{attentionCount}</span>
         </div>
-        <div className="attention-grid">
+        <div className="attention-grid" data-clear={attentionCount === 0 || undefined}>
           {overdueCount > 0 && <AttentionItem tone="red" icon={AlertTriangle} title={`${overdueCount} payout${overdueCount === 1 ? "" : "s"} need attention`} detail="Confirm receipt or follow up" />}
           {tdsMismatch > 0n && <AttentionItem tone="orange" icon={ReceiptIndianRupee} title={`${formatMoney(tdsMismatch)} TDS mismatch`} detail="Review verified PAN credit" />}
           {pendingForms > 0 && <AttentionItem tone="yellow" icon={FileWarning} title={`${pendingForms} form${pendingForms === 1 ? "" : "s"} pending`} detail={financialYear} />}
           {maturityCount > 0 && <AttentionItem tone="slate" icon={CalendarClock} title={`${maturityCount} maturity approaching`} detail="Within 90 days" />}
-          {attentionCount === 0 && <div className="inline-empty"><CheckCircle2 /><span><b>Nothing needs attention</b><small>Your recorded items are up to date.</small></span></div>}
+          {attentionCount === 0 && <p className="attention-clear"><CheckCircle2 aria-hidden="true" /> Nothing needs attention.</p>}
         </div>
       </section>
 

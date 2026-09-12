@@ -250,7 +250,7 @@ export function FixedIncomeApp() {
           ) : selected ? (
             <InvestmentDetailScreen investment={selected} onBack={() => setSelectedInvestmentId(null)} onEdit={() => openEditInvestment(selected)} onDataChanged={loadPortfolio} />
           ) : screen === "home" ? (
-            <DashboardScreen displayName={displayName} financialYear={financialYear} investments={investments} onOpenInvestment={openInvestment} onViewInvestments={() => navigate("investments")} onAddInvestment={openAddInvestment} />
+            <DashboardScreen displayName={displayName} financialYear={financialYear} investments={investments} onOpenInvestment={openInvestment} onAddInvestment={openAddInvestment} />
           ) : screen === "investments" ? (
             <InvestmentListScreen investments={investments} onOpenInvestment={openInvestment} onAddInvestment={openAddInvestment} financialYear={financialYear} />
           ) : screen === "payouts" ? (
