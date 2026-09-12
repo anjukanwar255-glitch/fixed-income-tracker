@@ -30,6 +30,9 @@ const settingsInput = z.object({
   // Bounded: a trial of zero locks every new account out on sight, and one of
   // a year is a mistake rather than a policy.
   trialDays: z.number().int().min(1).max(90),
+  // Zero is allowed and means scanning is off, which is a real choice; the
+  // upper bound is there so a slipped digit cannot uncap it.
+  monthlyScanLimit: z.number().int().min(0).max(5_000),
 });
 
 export async function GET() {
@@ -61,6 +64,7 @@ export async function PUT(request: Request) {
       planRates: input.planRates.map((rate) => ({ code: rate.code as never, amountPaise: rate.amountPaise })),
       supportUrl: input.supportUrl ?? null,
       trialDays: input.trialDays,
+      monthlyScanLimit: input.monthlyScanLimit,
     }, identity.uid);
 
     // Under the administrator's own tree: who changed a published price, and

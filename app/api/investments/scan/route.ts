@@ -3,6 +3,8 @@ import { isDocumentScanConfigured, scanInvestmentDocuments, type ScanSource } fr
 import { MAX_DOCUMENT_BYTES, validateDocumentBytes } from "@/lib/file-validation";
 import { authenticatedUser } from "@/lib/firebase-auth";
 import { rateLimit } from "@/lib/rate-limit";
+import { readAdminSettings } from "@/lib/admin-settings";
+import { recordScan, scansUsed } from "@/lib/scan-usage";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +40,21 @@ export async function POST(request: Request) {
 
   if (!isDocumentScanConfigured()) {
     return Response.json({ error: "Document scanning is not enabled" }, { status: 503 });
+  }
+
+  // The hour holds back a burst; the month holds back the bill. Both are
+  // needed, and they are not the same limit set at different scales.
+  const { monthlyScanLimit } = await readAdminSettings();
+  const used = await scansUsed(identity.uid);
+  if (used >= monthlyScanLimit) {
+    return Response.json({
+      error: monthlyScanLimit === 0
+        ? "Document scanning is switched off."
+        : `You have used all ${monthlyScanLimit} scans for this month. Enter the details by hand, or come back next month.`,
+      code: "SCAN_LIMIT_REACHED",
+      used,
+      limit: monthlyScanLimit,
+    }, { status: 429 });
   }
 
   const limited = await rateLimit(request, "document-scan", identity.uid, 15, 60 * 60 * 1000);
@@ -94,7 +111,13 @@ export async function POST(request: Request) {
    */
   try {
     const fields = await scanInvestmentDocuments(sources, lookAgainFor);
-    return Response.json({ fields }, { headers: { "cache-control": "no-store" } });
+    // Only a reading that produced something counts against the month.
+    await recordScan(identity.uid).catch(() => undefined);
+    return Response.json({
+      fields,
+      used: used + 1,
+      limit: monthlyScanLimit,
+    }, { headers: { "cache-control": "no-store" } });
   } catch {
     return Response.json({ error: "The documents could not be read. Enter the details manually." }, { status: 503 });
   }

@@ -34,6 +34,14 @@ export type AdminSettings = {
   supportUrl: string | null;
   /** How long a new account gets before it has to subscribe. */
   trialDays: number;
+  /**
+   * Scans one account may make in a calendar month.
+   *
+   * The hourly limit stops a burst; it does not stop a bill. At fifteen an
+   * hour an account can read ten thousand documents in a month, which costs
+   * many times what it pays — so the month is where the ceiling belongs.
+   */
+  monthlyScanLimit: number;
   updatedAt: string | null;
   updatedBy: string | null;
 };
@@ -43,6 +51,7 @@ export const defaultSettings: AdminSettings = {
   planRates: [],
   supportUrl: null,
   trialDays: 7,
+  monthlyScanLimit: 30,
   updatedAt: null,
   updatedBy: null,
 };
@@ -128,6 +137,9 @@ function parse(valueJson: string): Partial<AdminSettings> {
       trialDays: typeof raw.trialDays === "number" && raw.trialDays >= 1 && raw.trialDays <= 90
         ? Math.round(raw.trialDays)
         : defaultSettings.trialDays,
+      monthlyScanLimit: typeof raw.monthlyScanLimit === "number" && raw.monthlyScanLimit >= 0 && raw.monthlyScanLimit <= 5_000
+        ? Math.round(raw.monthlyScanLimit)
+        : defaultSettings.monthlyScanLimit,
       updatedBy: typeof raw.updatedBy === "string" ? raw.updatedBy : null,
     };
   } catch {

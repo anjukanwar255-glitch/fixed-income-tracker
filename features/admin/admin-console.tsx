@@ -21,6 +21,7 @@ type Settings = {
   planRates: { code: PlanCode; amountPaise: number }[];
   supportUrl: string | null;
   trialDays: number;
+  monthlyScanLimit: number;
   updatedAt: string | null;
 };
 
@@ -98,6 +99,7 @@ export function AdminConsole() {
           planRates: settings.planRates,
           supportUrl: settings.supportUrl || null,
           trialDays: settings.trialDays,
+          monthlyScanLimit: settings.monthlyScanLimit,
         }),
       });
       const result = await response.json() as { error?: string };
@@ -243,6 +245,11 @@ export function AdminConsole() {
                   <Label htmlFor="admin-trial">Trial length (days)</Label>
                   <Input id="admin-trial" inputMode="numeric" value={String(settings?.trialDays ?? 7)} onChange={(event) => setSettings((current) => current && ({ ...current, trialDays: Number(event.target.value) || 0 }))} />
                   <p className="field-note">Applies to accounts created from now on. A trial already running keeps the length it was given — someone told seven days was told seven days.</p>
+                </div>
+                <div className="form-field">
+                  <Label htmlFor="admin-scans">Scans per account per month</Label>
+                  <Input id="admin-scans" inputMode="numeric" value={String(settings?.monthlyScanLimit ?? 30)} onChange={(event) => setSettings((current) => current && ({ ...current, monthlyScanLimit: Number(event.target.value) || 0 }))} />
+                  <p className="field-note">Reading a document costs real money, and the hourly limit only holds back a burst. Zero switches scanning off; everything can still be entered by hand.</p>
                 </div>
               </section>
 

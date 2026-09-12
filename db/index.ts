@@ -18,6 +18,7 @@ import type {
   ClosureDoc,
   ContributionDoc,
   FeedbackDoc,
+  UsageDoc,
   BillingEventDoc,
   DocumentDoc,
   FinancialYearDoc,
@@ -131,6 +132,10 @@ export function tdsRecords(uid: string) {
 
 export function closures(uid: string) {
   return userDoc(uid).collection("closures") as CollectionReference<ClosureDoc>;
+}
+
+export function usage(uid: string) {
+  return userDoc(uid).collection("usage") as CollectionReference<UsageDoc>;
 }
 
 export function feedback(uid: string) {

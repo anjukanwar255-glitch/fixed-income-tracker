@@ -218,6 +218,8 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [rereading, setRereading] = useState(false);
   /** What the documents left blank after both passes, for the investor to fill. */
   const [scanGaps, setScanGaps] = useState<string[]>([]);
+  /** What the month has left, once a scan has told us. */
+  const [scansLeft, setScansLeft] = useState<number | null>(null);
 
   /**
    * Reads the attached documents and writes what they say into the form.
@@ -246,8 +248,11 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
         if (lookAgainFor.length) form.append("lookAgainFor", lookAgainFor.join(","));
         // No content-type header: the browser sets the multipart boundary.
         const response = await apiFetch("/api/investments/scan", { method: "POST", body: form });
-        const payload = await response.json() as { fields?: Record<string, unknown>; error?: string };
+        const payload = await response.json() as { fields?: Record<string, unknown>; error?: string; used?: number; limit?: number };
         if (!response.ok || !payload.fields) throw new Error(payload.error ?? "The documents could not be read");
+        if (typeof payload.used === "number" && typeof payload.limit === "number") {
+          setScansLeft(Math.max(payload.limit - payload.used, 0));
+        }
         return payload.fields;
       };
 
@@ -612,6 +617,11 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                     ? <><Loader2 className="spinning" aria-hidden="true" /> Reading the documents…</>
                     : "Each document is read as soon as it is attached, and re-read when the other arrives. Every value is yours to check before saving."}
               </p>
+              {scansLeft !== null && !scanning && (
+                <p className="field-note">{scansLeft === 0
+                  ? "That was the last scan for this month. You can still enter everything by hand."
+                  : `${scansLeft} scan${scansLeft === 1 ? "" : "s"} left this month.`}</p>
+              )}
               {scanGaps.length > 0 && !scanning && (
                 <div className="mismatch-note">
                   <AlertTriangle /> The documents did not give: {scanGaps.map((key) => ESSENTIAL_SCAN_FIELDS.find((field) => field.key === key)?.label ?? key).join(", ")}. {scanGaps.length === 1 ? "It is" : "They are"} marked on the steps ahead.

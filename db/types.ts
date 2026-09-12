@@ -187,6 +187,19 @@ export interface ClosureDoc extends Timestamps {
   remarks?: string | null;
 }
 
+/**
+ * What an account has used in one calendar month, one document per month.
+ *
+ * Counted rather than derived: scans are not stored anywhere to count
+ * afterwards, and the figure is needed before the work is done rather than
+ * after. A document per month also expires by simply never being read again.
+ */
+export interface UsageDoc extends Timestamps {
+  /** The month it counts, as YYYY-MM. */
+  id: string;
+  scans: number;
+}
+
 export interface FeedbackDoc extends Timestamps {
   id: string;
   category: string;
