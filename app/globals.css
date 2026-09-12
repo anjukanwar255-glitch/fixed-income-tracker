@@ -326,7 +326,7 @@ html[data-sidebar="collapsed"] .sidebar-toggle svg { transform:rotate(180deg); }
 }
 
 @media (max-width: 700px) {
-  .current-plan-facts { grid-template-columns:1fr; gap:11px; }.current-plan-amount { margin-left:0; }  .mobile-only-card { display:block; }  .desktop-sidebar { display:none; }.sidebar-toggle { display:none; }.app-main { margin-left:0; width:100%; }.topbar { height:58px; justify-content:space-between; padding:0 15px; }.mobile-brand { align-items:center; display:flex; font-size:.86rem; gap:8px; }.mobile-menu { background:none; border:0; color:#345069; display:none; padding:5px; }.app-content { padding:18px 15px 104px; }.screen-header { align-items:center; margin-bottom:18px; }.screen-header h1 { font-size:1.7rem; }.screen-kicker { font-size:.66rem; }.fy-select { font-size:.78rem; min-width:106px; }.topbar-actions .cloud-status { display:none; }
+  .current-plan-facts { grid-template-columns:1fr; gap:11px; }.current-plan-amount { margin-left:0; }  .cashflow-months { grid-auto-columns:64px; grid-auto-flow:column; grid-template-columns:none; overflow-x:auto; scroll-snap-type:x proximity; }.cashflow-month { scroll-snap-align:start; }.cashflow-head strong { font-size:1.3rem; }  .mobile-only-card { display:block; }  .desktop-sidebar { display:none; }.sidebar-toggle { display:none; }.app-main { margin-left:0; width:100%; }.topbar { height:58px; justify-content:space-between; padding:0 15px; }.mobile-brand { align-items:center; display:flex; font-size:.86rem; gap:8px; }.mobile-menu { background:none; border:0; color:#345069; display:none; padding:5px; }.app-content { padding:18px 15px 104px; }.screen-header { align-items:center; margin-bottom:18px; }.screen-header h1 { font-size:1.7rem; }.screen-kicker { font-size:.66rem; }.fy-select { font-size:.78rem; min-width:106px; }.topbar-actions .cloud-status { display:none; }
   .mobile-bottom-nav { align-items:center; background:#ffffffee; border-top:1px solid #dfe7ee; bottom:0; display:grid; grid-template-columns:repeat(5,1fr); height:76px; left:0; padding:5px 7px 9px; position:fixed; right:0; z-index:40; }.mobile-bottom-nav button { align-items:center; background:none; border:0; color:#758699; display:flex; flex-direction:column; font-size:.63rem; gap:4px; justify-content:center; min-height:54px; }.mobile-bottom-nav button svg { height:20px; width:20px; }.mobile-bottom-nav button[data-active="true"] { color:#0b7770; font-weight:800; }.mobile-floating-add { align-items:center; background:#0b6660; border:4px solid #f3f6fa; border-radius:50%; bottom:87px; box-shadow:0 10px 24px #0b3b4850; color:#fff; display:flex; height:54px; justify-content:center; position:fixed; right:16px; width:54px; z-index:39; }.mobile-floating-add svg { height:25px; width:25px; }
   .portfolio-hero { border-radius:20px; min-height:206px; padding:22px; }.portfolio-hero > strong { font-size:2.35rem; margin:23px 0 29px; }.hero-breakdown { gap:30px; }.metric-grid { gap:10px; grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:12px; }.metric-card { min-height:113px; }.metric-card [data-slot="card-content"] { display:flex; flex-direction:column; padding:14px; }.metric-icon { height:31px; margin:0 0 10px; width:31px; }.metric-icon svg { height:15px; width:15px; }.metric-label { font-size:.67rem; }.metric-card strong { font-size:1rem; margin-top:4px; }.content-section { border-radius:17px; padding:16px; }.section-heading h2 { font-size:1rem; }.section-heading p { font-size:.7rem; }.section-heading button { padding-right:0; }.payout-row { gap:9px; grid-template-columns:auto 1fr auto; }.payout-row > svg { display:none; }.issuer-avatar { border-radius:10px; height:37px; width:37px; }.payout-copy b { max-width:145px; }.payout-amount b { font-size:.79rem; }.payout-amount span { display:none; }.attention-grid { grid-template-columns:1fr; }
   .search-filter-row { flex-direction:column; }.status-filter { width:100%; }.type-tabs [data-slot="tabs-list"] { justify-content:flex-start; width:100%; }.investment-card { gap:11px; grid-template-columns:auto 1fr; padding:15px; }.investment-logo { height:38px; width:38px; }.card-chevron { display:none; }.investment-title-row { gap:10px; }.investment-title-row b { font-size:.85rem; }.investment-title-row .status-active { font-size:.6rem; }.investment-numbers { gap:30px; margin:15px 0 12px; }.investment-numbers b { font-size:.91rem; }.investment-dates { align-items:flex-start; flex-direction:column; gap:6px; }.investment-dates span:nth-child(2) { display:flex; }
@@ -351,6 +351,35 @@ html[data-sidebar="collapsed"] .sidebar-toggle svg { transform:rotate(180deg); }
 /* 2. A row that has to narrow wraps its figures onto a second line instead of
    dropping them. They are the only reason the row exists, and hiding them left
    a date beside a badge saying nothing about the money. */
+.cashflow-card { background:#fff; border:1px solid #e0e7ee; border-radius:20px; margin-bottom:20px; overflow:hidden; }
+.cashflow-head { align-items:flex-start; border-bottom:1px solid #eef3f7; display:flex; flex-wrap:wrap; gap:14px; justify-content:space-between; padding:18px 20px; }
+.cashflow-kicker { align-items:center; color:#6b7f93; display:flex; font-size:.68rem; font-weight:800; gap:6px; letter-spacing:.07em; text-transform:uppercase; }
+.cashflow-kicker svg { height:14px; width:14px; }
+.cashflow-head strong { display:block; font-size:1.5rem; letter-spacing:-.03em; margin-top:6px; }
+.cashflow-rate { align-items:center; background:#eefaf7; border-radius:13px; color:#0b6660; display:flex; gap:9px; padding:10px 13px; }
+.cashflow-rate svg { height:17px; width:17px; }
+.cashflow-rate small { color:#4d7b76; display:block; font-size:.66rem; }
+.cashflow-rate b { font-size:.95rem; }
+.cashflow-months { display:grid; gap:8px; grid-template-columns:repeat(6,minmax(0,1fr)); padding:16px 20px 4px; }
+.cashflow-month { align-items:center; background:none; border:1px solid transparent; border-radius:14px; cursor:pointer; display:flex; flex-direction:column; gap:7px; padding:9px 4px; transition:background .15s,border-color .15s; }
+.cashflow-month:hover { background:#f4f8fb; }
+.cashflow-month[data-open] { background:#eefaf7; border-color:#bfe4de; }
+.cashflow-amount { color:#37506a; font-size:.7rem; font-weight:800; white-space:nowrap; }
+.cashflow-month[data-empty] .cashflow-amount { color:#9fb0c0; }
+.cashflow-bar { align-items:flex-end; background:#f0f4f8; border-radius:7px; display:flex; height:56px; overflow:hidden; width:22px; }
+.cashflow-bar i { background:#8fd8d0; border-radius:7px; display:block; width:100%; }
+.cashflow-month[data-open] .cashflow-bar i { background:#0f9c92; }
+.cashflow-label { color:#6b7f93; font-size:.7rem; font-weight:700; }
+.cashflow-rows { border-top:1px solid #eef3f7; margin-top:12px; }
+.cashflow-row { align-items:center; background:none; border:0; border-top:1px solid #f1f5f8; cursor:pointer; display:flex; gap:11px; padding:12px 20px; text-align:left; width:100%; }
+.cashflow-row:first-child { border-top:0; }
+.cashflow-row:hover { background:#f7fafc; }
+.cashflow-row-copy { display:flex; flex:1; flex-direction:column; gap:2px; min-width:0; }
+.cashflow-row-copy b { font-size:.8rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cashflow-row-copy small { color:#748599; font-size:.68rem; }
+.cashflow-row-value { font-size:.82rem; font-weight:800; white-space:nowrap; }
+.cashflow-empty { color:#748599; font-size:.76rem; margin:0; padding:16px 20px; }
+
 /* The issuer's mark: its logo, or its initials on a colour of its own. */
 .issuer-mark { align-items:center; border-radius:11px; color:#fff; display:inline-flex; flex:0 0 auto; font-size:.74rem; font-weight:800; justify-content:center; letter-spacing:.02em; overflow:hidden; height:38px; width:38px; }
 .issuer-mark-sm { border-radius:9px; font-size:.66rem; height:30px; width:30px; }

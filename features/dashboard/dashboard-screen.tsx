@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { declarationPending } from "@/core/tax/declarations";
+import { CashflowStrip } from "@/features/dashboard/cashflow-strip";
 import { formatMoney } from "@/core/finance/calculations";
 import type { PortfolioInvestment } from "@/core/models/financial";
 
@@ -117,6 +118,8 @@ export function DashboardScreen({
           </Card>
         ))}
       </section>
+
+      <CashflowStrip investments={investments} onOpenInvestment={onOpenInvestment} />
 
       <section className="content-section">
         <div className="section-heading">
