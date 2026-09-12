@@ -345,11 +345,14 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
    a date beside a badge saying nothing about the money. */
 .payout-figure { min-width:0; }
 @media (max-width:1180px) {
-  .detail-payout-row { display:flex; flex-wrap:wrap; align-items:center; gap:9px 16px; }
-  .detail-payout-row > .payout-date-icon { order:1; }
-  .detail-payout-row > .detail-payout-date { order:2; flex:1 1 auto; }
-  .detail-payout-row > :not(.payout-figure):not(.payout-date-icon):not(.detail-payout-date) { order:3; margin-left:auto; }
-  .detail-payout-row > .payout-figure { order:4; flex:1 1 28%; min-width:92px; }
+  .detail-payout-row { align-items:start; display:grid; gap:10px 14px; grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto; }
+  .detail-payout-row > .payout-date-icon { align-self:center; grid-area:1/1; }
+  .detail-payout-row > .detail-payout-date { grid-area:1/2; }
+  .detail-payout-row > .payout-figure-main { grid-area:1/3; }
+  .detail-payout-row > .payout-figure-under-date { grid-area:2/2; }
+  .detail-payout-row > .payout-figure-under-main { grid-area:2/3; }
+  /* The badge, or the buttons that stand in for it — whatever ends the row. */
+  .detail-payout-row > :not(.payout-figure):not(.payout-date-icon):not(.detail-payout-date) { align-self:center; grid-area:1/4; justify-self:end; }
 }
 
 /* 3. Collapsed to its icons, so a narrow screen can hand the width back to the
