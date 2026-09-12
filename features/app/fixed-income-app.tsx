@@ -216,21 +216,24 @@ export function FixedIncomeApp() {
     <div className="app-shell">
       <aside className="desktop-sidebar">
         <div className="sidebar-brand"><span className="brand-mark"><Landmark /></span><span><b>Portfolio</b><small>Investments &amp; cover</small></span></div>
-        {/*
-          Collapsing is held on the document rather than in React state: the
-          choice is read back before the first paint, so the sidebar does not
-          flash open on every load, and the arrow turns from CSS rather than
-          needing the component to re-render to know which way it points.
-        */}
-        <button className="sidebar-toggle" onClick={toggleSidebar} aria-label="Collapse or expand the sidebar"><ChevronLeft /></button>
+
         <nav aria-label="Primary navigation">
           {navItems.map(({ value, label, icon: Icon }) => (
             <button data-active={selected ? value === "investments" : screen === value} key={value} onClick={() => navigate(value)}><Icon /><span>{label}</span></button>
           ))}
         </nav>
-        <button className="sidebar-add" onClick={openAddInvestment}><CirclePlus /> Add investment</button>
+        <button className="sidebar-add" onClick={openAddInvestment}><CirclePlus /><span>Add investment</span></button>
         <div className="sidebar-trust"><span><Landmark /></span><p><b>Audit-safe records</b><small>Expected, actual and verified values stay separate.</small></p></div>
       </aside>
+
+      {/*
+        A handle on the bar's edge rather than a button inside it, so it reads
+        as the thing that moves the bar. Collapsing is held on the document
+        rather than in React state: the choice is read back before the first
+        paint, so the bar does not flash open on every load, and the arrow
+        turns from CSS rather than needing a re-render to know its direction.
+      */}
+      <button className="sidebar-toggle" onClick={toggleSidebar} aria-label="Collapse or expand the sidebar"><ChevronLeft /></button>
 
       <div className="app-main">
         <header className="topbar">
