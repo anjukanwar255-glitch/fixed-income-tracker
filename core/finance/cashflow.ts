@@ -18,6 +18,18 @@ export type CashflowMonth = {
   count: number;
 };
 
+/**
+ * The first month of a financial year, from the label the app uses for it.
+ *
+ * The label carries its own "FY " prefix, so it cannot be sliced into: taking
+ * the first four characters yields "FY 2", and a date built from that is not
+ * wrong so much as meaningless.
+ */
+export function financialYearStart(financialYear: string) {
+  const year = financialYear.match(/(\d{4})/)?.[1];
+  return year ? `${year}-04-01` : null;
+}
+
 /** The months from `startMonth`, whether or not anything falls in them. */
 export function monthlyCashflow(investments: PortfolioInvestment[], startMonth: string, months: number): CashflowMonth[] {
   const start = parseIsoDate(startMonth.slice(0, 7) + "-01");

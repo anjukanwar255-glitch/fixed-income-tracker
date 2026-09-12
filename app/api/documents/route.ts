@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 const documentFields = z.object({
   investmentId: z.string().uuid(),
-  documentType: z.enum(["investment-certificate", "investment-document", "bond-certificate", "bond-document", "interest-certificate", "tds-certificate", "form-15g", "form-15h", "statement", "other"]),
+  documentType: z.enum(["investment-certificate", "investment-document", "bond-certificate", "bond-document", "repayment-schedule", "interest-certificate", "tds-certificate", "form-15g", "form-15h", "statement", "other"]),
   financialYear: z.string().regex(/^FY \d{4}-\d{2}$/).optional().or(z.literal("")),
 });
 

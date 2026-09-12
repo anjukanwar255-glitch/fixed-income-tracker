@@ -5,7 +5,7 @@ import { CalendarRange, TrendingUp } from "lucide-react";
 
 import { IssuerMark } from "@/components/issuer-mark";
 import { formatMoney } from "@/core/finance/calculations";
-import { annualisedReturn, monthlyCashflow, portfolioFlows } from "@/core/finance/cashflow";
+import { annualisedReturn, financialYearStart, monthlyCashflow, portfolioFlows } from "@/core/finance/cashflow";
 import type { PortfolioInvestment } from "@/core/models/financial";
 
 /** April to March: the year the rest of the app is already reporting on. */
@@ -37,7 +37,7 @@ export function CashflowStrip({ investments, financialYear, onOpenInvestment }: 
    * from today would be answering a different question with the same numbers.
    */
   const months = useMemo(
-    () => monthlyCashflow(investments, `${financialYear.slice(0, 4)}-04-01`, FY_MONTHS),
+    () => monthlyCashflow(investments, financialYearStart(financialYear) ?? `${new Date().getFullYear()}-04-01`, FY_MONTHS),
     [investments, financialYear],
   );
   const rate = useMemo(() => annualisedReturn(portfolioFlows(investments)), [investments]);
@@ -67,7 +67,7 @@ export function CashflowStrip({ investments, financialYear, onOpenInvestment }: 
     <section className="cashflow-card" aria-label="Cash flow ahead">
       <header className="cashflow-head">
         <div>
-          <span className="cashflow-kicker"><CalendarRange aria-hidden="true" /> FY {financialYear}</span>
+          <span className="cashflow-kicker"><CalendarRange aria-hidden="true" /> {financialYear}</span>
           <strong>{formatMoney(total)}</strong>
         </div>
         {rate !== null && (

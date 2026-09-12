@@ -670,3 +670,18 @@ test("an issuer keeps the same colour everywhere it is shown", () => {
   const spread = new Set(["Muthoot", "Orange", "Mangal", "Keertana", "UGRO"].map(mark.issuerColour));
   assert.ok(spread.size > 1);
 });
+
+test("a financial year's first month is read from its label, not sliced from it", () => {
+  // The label carries its own prefix; slicing four characters yields "FY 2".
+  assert.equal(cashflow.financialYearStart(finance.calculateFinancialYear("2026-09-10")), "2026-04-01");
+  assert.equal(cashflow.financialYearStart("FY 2026-27"), "2026-04-01");
+  assert.equal(cashflow.financialYearStart("2027-28"), "2027-04-01");
+  assert.equal(cashflow.financialYearStart("not a year"), null);
+});
+
+test("a year's months run April to March", () => {
+  const months = cashflow.monthlyCashflow([], cashflow.financialYearStart("FY 2026-27"), 12);
+  assert.equal(months.length, 12);
+  assert.equal(months[0].month, "2026-04-01");
+  assert.equal(months.at(-1).month, "2027-03-01");
+});
