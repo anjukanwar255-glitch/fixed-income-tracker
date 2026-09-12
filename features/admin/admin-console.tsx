@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Landmark, Loader2, MessageSquare, Paperclip, ReceiptIndianRupee, Wrench } from "lucide-react";
+import { ArrowLeft, Landmark, MessageSquare, Paperclip, ReceiptIndianRupee, ShieldCheck, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
+import { formatMoney } from "@/core/finance/calculations";
 import { subscriptionPlans, type PlanCode } from "@/lib/plans";
 import { useFirebaseAuth } from "@/hooks/use-firebase-auth";
 import { apiFetch } from "@/lib/firebase-client";
@@ -33,17 +35,30 @@ type Message = {
   createdAt: string;
 };
 
+type Section = "maintenance" | "pricing" | "messages";
+
+const sections: { value: Section; label: string; icon: typeof Wrench }[] = [
+  { value: "maintenance", label: "Maintenance", icon: Wrench },
+  { value: "pricing", label: "Pricing", icon: ReceiptIndianRupee },
+  { value: "messages", label: "Messages", icon: MessageSquare },
+];
+
 /**
  * The administrator's console, inside the app rather than beside it.
  *
  * It shares the sign-in that protects everything else, so there is no second
  * credential to leak or rotate, and no endpoint that has to be reachable from
- * another origin. It also means the maintenance switch cannot be stranded:
- * a console on a separate site would be unreachable exactly when that site is
+ * another origin. It also means the maintenance switch cannot be stranded: a
+ * console on a separate site would be unreachable exactly when that site is
  * the thing that is down, leaving the notice stuck on.
+ *
+ * It wears the same shell as the app — the same sidebar, header and cards —
+ * because it is the same product seen from the other side, and a plainer
+ * second design would be a second set of conventions to keep in step.
  */
 export function AdminConsole() {
   const auth = useFirebaseAuth();
+  const [section, setSection] = useState<Section>("maintenance");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [permitted, setPermitted] = useState<boolean | null>(null);
@@ -95,17 +110,26 @@ export function AdminConsole() {
   };
 
   if (auth.status === "loading" || (auth.status === "signed-in" && permitted === null)) {
-    return <main className="admin-shell"><p className="admin-loading"><Loader2 className="spinning" /> Checking access…</p><Toaster position="top-center" /></main>;
+    return (
+      <main className="splash-screen">
+        <div className="splash-logo"><Landmark aria-hidden="true" /></div>
+        <h1>Admin</h1>
+        <p>Checking access…</p>
+        <span className="splash-loader"><i /></span>
+      </main>
+    );
   }
 
   if (auth.status !== "signed-in" || !permitted) {
     return (
-      <main className="admin-shell">
-        <section className="admin-card admin-denied">
-          <span className="brand-mark"><Landmark aria-hidden="true" /></span>
-          <h1>Administrator access only</h1>
-          <p>Sign in with an account that has the administrator role. Nothing here is available otherwise.</p>
-          <Button onClick={() => { window.location.href = "/"; }}>Go to the app</Button>
+      <main className="auth-shell">
+        <section className="auth-card">
+          <div className="auth-brand"><span className="brand-mark"><Landmark aria-hidden="true" /></span><span>Portfolio</span></div>
+          <div className="auth-heading">
+            <h1>Administrator access only</h1>
+            <p>Sign in with an account that holds the administrator role. Nothing here is available otherwise.</p>
+          </div>
+          <Button size="lg" className="w-full" onClick={() => { window.location.href = "/"; }}>Go to the app</Button>
         </section>
         <Toaster position="top-center" />
       </main>
@@ -130,78 +154,146 @@ export function AdminConsole() {
     });
   };
 
+  const live = settings?.maintenance.enabled ?? false;
+
   return (
-    <main className="admin-shell">
-      <header className="admin-head">
-        <span className="brand-mark"><Landmark aria-hidden="true" /></span>
-        <div><h1>Admin console</h1><p>Portfolio · {settings?.updatedAt ? `last changed ${formatWhen(settings.updatedAt)}` : "no changes yet"}</p></div>
-        <Button variant="outline" onClick={() => { window.location.href = "/"; }}>Back to the app</Button>
-      </header>
-
-      <section className="admin-card">
-        <div className="admin-card-head"><span className="admin-icon"><Wrench aria-hidden="true" /></span><div><h2>Maintenance notice</h2><p>Replaces the page body. The app stays open and signed in.</p></div></div>
-        <div className="admin-toggle-row">
-          <div><b>Show the notice</b><small>Everyone sees it within a minute, without reloading.</small></div>
-          <Switch checked={settings?.maintenance.enabled ?? false} onCheckedChange={(checked) => setMaintenance({ enabled: checked })} />
-        </div>
-        <div className="form-field">
-          <Label htmlFor="admin-message">What to say</Label>
-          <Textarea id="admin-message" rows={3} maxLength={500} value={settings?.maintenance.message ?? ""} onChange={(event) => setMaintenance({ message: event.target.value })} placeholder="Some parts are briefly unavailable while an update is applied. Your records are untouched." />
-        </div>
-        <div className="form-field">
-          <Label htmlFor="admin-until">Expected back by <span className="field-optional">optional</span></Label>
-          <Input id="admin-until" type="datetime-local" value={toLocalInput(settings?.maintenance.until ?? null)} onChange={(event) => setMaintenance({ until: fromLocalInput(event.target.value) })} />
-          <p className="field-note">Left blank, the notice gives no end time rather than a guessed one.</p>
-        </div>
-      </section>
-
-      <section className="admin-card">
-        <div className="admin-card-head"><span className="admin-icon"><ReceiptIndianRupee aria-hidden="true" /></span><div><h2>Subscription prices</h2><p>What each plan costs. Everything else about a plan stays in the code.</p></div></div>
-        <div className="field-grid">
-          {subscriptionPlans.map((plan) => (
-            <div className="form-field" key={plan.code}>
-              <Label htmlFor={`rate-${plan.code}`}>{plan.label} (₹)</Label>
-              <Input id={`rate-${plan.code}`} inputMode="decimal" value={String(rateFor(plan.code) / 100)} onChange={(event) => setRate(plan.code, event.target.value)} />
-            </div>
+    <div className="app-shell">
+      <aside className="desktop-sidebar">
+        <div className="sidebar-brand"><span className="brand-mark"><Landmark /></span><span><b>Portfolio</b><small>Admin console</small></span></div>
+        <nav aria-label="Admin sections">
+          {sections.map(({ value, label, icon: Icon }) => (
+            <button data-active={section === value} key={value} onClick={() => setSection(value)}><Icon /><span>{label}</span></button>
           ))}
+        </nav>
+        <button className="sidebar-add" onClick={() => { window.location.href = "/"; }}><ArrowLeft /><span>Back to the app</span></button>
+        <div className="sidebar-trust">
+          <span><ShieldCheck /></span>
+          <p><b>Changes are recorded</b><small>Who changed a published price, and when, stays on the activity trail.</small></p>
         </div>
-        <p className="field-note">A price change applies to new subscriptions. Anyone already subscribed keeps the plan they bought until it renews.</p>
-      </section>
+      </aside>
 
-      <section className="admin-card">
-        <div className="admin-card-head"><span className="admin-icon"><MessageSquare aria-hidden="true" /></span><div><h2>Support link</h2><p>Where &ldquo;Write to us&rdquo; points people for anything it cannot handle.</p></div></div>
-        <div className="form-field">
-          <Label htmlFor="admin-support">Support URL</Label>
-          <Input id="admin-support" value={settings?.supportUrl ?? ""} onChange={(event) => setSettings((current) => current && ({ ...current, supportUrl: event.target.value }))} placeholder="https://…" />
-        </div>
-      </section>
+      <div className="app-main">
+        <header className="topbar">
+          <div className="mobile-brand"><span className="brand-mark mini"><Landmark /></span><b>Admin</b></div>
+          <div className="topbar-actions">
+            {live && <Badge className="status-mismatch"><Wrench /> Maintenance is on</Badge>}
+            <span className="cloud-status">{settings?.updatedAt ? `Changed ${formatWhen(settings.updatedAt)}` : "No changes yet"}</span>
+          </div>
+        </header>
 
-      <div className="admin-actions">
-        <Button disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save settings"}</Button>
+        <main className="app-content">
+          {section === "maintenance" && (
+            <div className="screen secondary-screen">
+              <header className="screen-header"><div><p className="screen-kicker">Public site</p><h1>Maintenance notice</h1></div></header>
+
+              <section className="settings-card stacked-card">
+                <div className="section-heading"><div><h2>Show the notice</h2><p>It replaces the page body. The app stays open, signed in and navigable.</p></div><Wrench /></div>
+                <div className="admin-toggle-row">
+                  <div><b>{live ? "Showing now" : "Not showing"}</b><small>Everyone sees the change within a minute, without reloading.</small></div>
+                  <Switch checked={live} onCheckedChange={(checked) => setMaintenance({ enabled: checked })} />
+                </div>
+                <div className="form-field">
+                  <Label htmlFor="admin-message">What it says</Label>
+                  <Textarea id="admin-message" rows={3} maxLength={500} value={settings?.maintenance.message ?? ""} onChange={(event) => setMaintenance({ message: event.target.value })} placeholder="Some parts are briefly unavailable while an update is applied. Your records are untouched." />
+                  <p className="field-note">Left blank, a neutral message is shown rather than an empty card.</p>
+                </div>
+                <div className="form-field">
+                  <Label htmlFor="admin-until">Expected back by <span className="field-optional">optional</span></Label>
+                  <Input id="admin-until" type="datetime-local" value={toLocalInput(settings?.maintenance.until ?? null)} onChange={(event) => setMaintenance({ until: fromLocalInput(event.target.value) })} />
+                  <p className="field-note">Left blank, the notice gives no end time rather than a guessed one.</p>
+                </div>
+              </section>
+
+              <div className="settings-actions"><Button disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</Button></div>
+            </div>
+          )}
+
+          {section === "pricing" && (
+            <div className="screen secondary-screen">
+              <header className="screen-header"><div><p className="screen-kicker">Billing</p><h1>Subscription prices</h1></div></header>
+
+              <div className="tds-metric-grid">
+                {subscriptionPlans.map((plan) => (
+                  <div key={plan.code}>
+                    <span>{plan.label}</span>
+                    <strong>{formatMoney(BigInt(rateFor(plan.code)))}</strong>
+                    <small>{plan.monthsCovered === 1 ? "each month" : `every ${plan.monthsCovered} months`}</small>
+                  </div>
+                ))}
+              </div>
+
+              <section className="settings-card stacked-card">
+                <div className="section-heading"><div><h2>What each plan costs</h2><p>Only the amount is set here — a plan&apos;s code, its billing period and the Razorpay plan it maps to stay in the code</p></div><ReceiptIndianRupee /></div>
+                <div className="field-grid">
+                  {subscriptionPlans.map((plan) => (
+                    <div className="form-field" key={plan.code}>
+                      <Label htmlFor={`rate-${plan.code}`}>{plan.label} (₹)</Label>
+                      <Input id={`rate-${plan.code}`} inputMode="decimal" value={String(rateFor(plan.code) / 100)} onChange={(event) => setRate(plan.code, event.target.value)} />
+                    </div>
+                  ))}
+                </div>
+                <p className="field-note">A new price applies to new subscriptions. Anyone already subscribed keeps what they bought until it renews.</p>
+              </section>
+
+              <section className="settings-card stacked-card">
+                <div className="section-heading"><div><h2>Support link</h2><p>Where &ldquo;Write to us&rdquo; sends people for anything it cannot handle</p></div><MessageSquare /></div>
+                <div className="form-field">
+                  <Label htmlFor="admin-support">Support URL</Label>
+                  <Input id="admin-support" value={settings?.supportUrl ?? ""} onChange={(event) => setSettings((current) => current && ({ ...current, supportUrl: event.target.value }))} placeholder="https://…" />
+                </div>
+              </section>
+
+              <div className="settings-actions"><Button disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</Button></div>
+            </div>
+          )}
+
+          {section === "messages" && (
+            <div className="screen secondary-screen">
+              <header className="screen-header"><div><p className="screen-kicker">Write to us</p><h1>Messages</h1></div></header>
+              <div className="secondary-summary">
+                <span><MessageSquare /> Received</span>
+                <strong>{messages.length}</strong>
+                <small>{messages.filter((entry) => entry.category === "issue").length} reporting something broken</small>
+              </div>
+              <div className="admin-messages">
+                {messages.map((entry) => (
+                  <article className="admin-message" key={entry.id}>
+                    <header>
+                      <b>{entry.subject}</b>
+                      <span>{labelCategory(entry.category)} · {formatWhen(entry.createdAt)}</span>
+                    </header>
+                    <p>{entry.message}</p>
+                    <footer>
+                      {entry.attachmentCount > 0 && <span><Paperclip aria-hidden="true" /> {entry.attachmentCount} attached</span>}
+                      {entry.appContext && <span>{entry.appContext}</span>}
+                    </footer>
+                  </article>
+                ))}
+                {!messages.length && <InlineEmpty />}
+              </div>
+            </div>
+          )}
+        </main>
       </div>
 
-      <section className="admin-card">
-        <div className="admin-card-head"><span className="admin-icon"><MessageSquare aria-hidden="true" /></span><div><h2>Write to us</h2><p>{messages.length} message{messages.length === 1 ? "" : "s"}, newest first</p></div></div>
-        <div className="admin-messages">
-          {messages.map((entry) => (
-            <article className="admin-message" key={entry.id}>
-              <header>
-                <b>{entry.subject}</b>
-                <span>{labelCategory(entry.category)} · {formatWhen(entry.createdAt)}</span>
-              </header>
-              <p>{entry.message}</p>
-              <footer>
-                {entry.attachmentCount > 0 && <span><Paperclip aria-hidden="true" /> {entry.attachmentCount} attached</span>}
-                {entry.appContext && <span>{entry.appContext}</span>}
-              </footer>
-            </article>
-          ))}
-          {!messages.length && <p className="field-note">Nothing has been sent yet.</p>}
-        </div>
-      </section>
+      <nav className="mobile-bottom-nav" aria-label="Admin sections">
+        {sections.map(({ value, label, icon: Icon }) => (
+          <button data-active={section === value} key={value} onClick={() => setSection(value)}><Icon /><small>{label}</small></button>
+        ))}
+        <button onClick={() => { window.location.href = "/"; }}><ArrowLeft /><small>App</small></button>
+      </nav>
 
       <Toaster position="top-center" />
-    </main>
+    </div>
+  );
+}
+
+function InlineEmpty() {
+  return (
+    <div className="inline-empty">
+      <MessageSquare />
+      <span><b>Nothing has been sent yet</b><small>Messages from &ldquo;Write to us&rdquo; arrive here, newest first.</small></span>
+    </div>
   );
 }
 
