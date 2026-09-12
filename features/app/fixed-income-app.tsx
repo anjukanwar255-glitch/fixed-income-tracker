@@ -13,6 +13,7 @@ import { AuthFlow } from "@/features/auth/auth-flow";
 import { DashboardScreen } from "@/features/dashboard/dashboard-screen";
 import { SubscriptionGate } from "@/features/billing/subscription-gate";
 import { FinancialYearSelect, financialYearsFor } from "@/features/app/financial-year-select";
+import { MaintenanceNotice, useMaintenanceNotice } from "@/features/app/maintenance-notice";
 import { AddInvestmentSheet } from "@/features/investments/add-investment-sheet";
 import { InvestmentDetailScreen } from "@/features/investments/investment-detail-screen";
 import { InvestmentListScreen } from "@/features/investments/investment-list-screen";
@@ -77,6 +78,7 @@ export function FixedIncomeApp() {
   const [editingInvestment, setEditingInvestment] = useState<PortfolioInvestment | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [reminderOpen, setReminderOpen] = useState(false);
+  const maintenance = useMaintenanceNotice();
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSplash(false), 720);
@@ -209,7 +211,7 @@ export function FixedIncomeApp() {
 
   // Profile has nothing that varies by year, and an investment's own screen
   // shows its whole life rather than a slice of it.
-  const showFinancialYear = !selected && !["profile", "subscription", "feedback"].includes(screen);
+  const showFinancialYear = !maintenance && !selected && !["profile", "subscription", "feedback"].includes(screen);
   const financialYears = financialYearsFor(investments, new Date().toISOString().slice(0, 10));
 
   return (
@@ -243,7 +245,9 @@ export function FixedIncomeApp() {
         </header>
 
         <main className="app-content">
-          {loadError ? (
+          {maintenance ? (
+            <MaintenanceNotice notice={maintenance} />
+          ) : loadError ? (
             <div className="empty-state"><span><Landmark aria-hidden="true" /></span><h2>Portfolio unavailable</h2><p>Your records are safe. Check the connection and try again.</p><Button onClick={() => void loadPortfolio()}>Try again</Button></div>
           ) : loading || portfolio?.uid !== uid ? (
             <div className="empty-state portfolio-loading"><span><Landmark aria-hidden="true" /></span><h2>Loading your portfolio</h2><p>Fetching your private investment records…</p></div>
