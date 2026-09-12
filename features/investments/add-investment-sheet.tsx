@@ -220,6 +220,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [scanGaps, setScanGaps] = useState<string[]>([]);
   /** What the month has left, once a scan has told us. */
   const [scansLeft, setScansLeft] = useState<number | null>(null);
+  const [scannedFor, setScannedFor] = useState<string | null>(null);
 
   /**
    * Reads the attached documents and writes what they say into the form.
@@ -383,17 +384,29 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     }
   };
 
-  /** Accepts one document into its slot and re-reads whatever is attached. */
+  /**
+   * Takes a document into its slot. Nothing is read yet.
+   *
+   * Reading on arrival meant reading twice for the ordinary case: the pass
+   * over the deal sheet was thrown away the moment the schedule arrived and
+   * both were read together. That doubled what one holding cost, and made an
+   * allowance of thirty scans mean fifteen holdings.
+   */
   const attachForScan = (role: "deal" | "schedule", file: File | null) => {
     if (!file) return;
     if (!allowedDocumentTypes.has(file.type) || file.size <= 0 || file.size > MAX_DOCUMENT_BYTES) {
       toast.error("Each file must be a PDF, JPG, JPEG or PNG up to 10 MB");
       return;
     }
-    const next = { deal: dealSheetFile, schedule: scheduleFile, [role]: file };
     if (role === "deal") setDealSheetFile(file); else setScheduleFile(file);
-    void runScan(next);
+    // Whatever was read before no longer describes what is attached.
+    setScannedFor(null);
   };
+
+  /** What was last read, so leaving and returning does not read it again. */
+  const attachedKey = [dealSheetFile, scheduleFile]
+    .map((file) => (file ? `${file.name}:${file.size}` : "-"))
+    .join("|");
 
   const resolvedBankName = bankName.trim();
   const bankNameInvalid = /\d/.test(bankName);
@@ -459,7 +472,14 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   /** TDS on interest cannot arise where no interest is earned. */
   const skipsTds = !lent;
 
-  const next = () => {
+  const next = async () => {
+    if (step === 1 && (dealSheetFile || scheduleFile) && scannedFor !== attachedKey) {
+      await runScan({ deal: dealSheetFile, schedule: scheduleFile });
+      setScannedFor(attachedKey);
+      // Left on this step so the values that just arrived can be seen against
+      // the papers before moving past them.
+      return;
+    }
     if (step === 2 && (!name.trim() || !issuer.trim() || parseRupeesToPaise(amount) <= 0n)) {
       toast.error("Add the investment name, issuer and a valid amount");
       return;
@@ -565,7 +585,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     setDeclarationApplicable(false); setBankName(""); setIfsc(""); setIfscLookup(null); setAccountNumber(""); setPaymentMode("bank-transfer");
     setNominee(""); setBroker(""); setAdvisor(""); setAdvisorMobile(""); setNotes(""); setAttachments([]);
     setFaceValue(""); setInterestStartDate(""); setDpId(""); setClientId(""); setOrderReference("");
-    setDealSheetFile(null); setScheduleFile(null); setScannedSchedule([]); setScanGaps([]);
+    setDealSheetFile(null); setScheduleFile(null); setScannedSchedule([]); setScanGaps([]); setScannedFor(null);
     setUnits(""); setPricePerUnit(""); setCurrentPrice(""); setContribution("");
     setContributionFrequency("monthly"); setContributionStart(""); setContributionEnd("");
     setSumAssured(""); setPolicyNumber("");
@@ -615,7 +635,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                   ? <><Loader2 className="spinning" aria-hidden="true" /> Some values did not come back — reading again for those…</>
                   : scanning
                     ? <><Loader2 className="spinning" aria-hidden="true" /> Reading the documents…</>
-                    : "Each document is read as soon as it is attached, and re-read when the other arrives. Every value is yours to check before saving."}
+                    : "Attach what you have, then read them together — one reading covers both. Every value is yours to check before saving."}
               </p>
               {scansLeft !== null && !scanning && (
                 <p className="field-note">{scansLeft === 0
@@ -936,7 +956,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
 
         <SheetFooter className="add-sheet-footer">
           <Button variant="outline" onClick={back}>{step > 1 && <ChevronLeft />}{step === 1 ? "Cancel" : "Back"}</Button>
-          {step < 6 ? <Button onClick={next} disabled={scanning}>{scanning ? "Reading…" : <>Continue <ChevronRight /></>}</Button> : <Button onClick={() => void save()} disabled={saving}><Check /> {saving ? "Saving…" : "Save investment"}</Button>}
+          {step < 6 ? <Button onClick={() => void next()} disabled={scanning}>{scanning ? "Reading…" : step === 1 && (dealSheetFile || scheduleFile) && scannedFor !== attachedKey ? <>Read documents <ChevronRight /></> : <>Continue <ChevronRight /></>}</Button> : <Button onClick={() => void save()} disabled={saving}><Check /> {saving ? "Saving…" : "Save investment"}</Button>}
         </SheetFooter>
       </SheetContent>
     </Sheet>
