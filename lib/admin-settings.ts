@@ -32,6 +32,8 @@ export type AdminSettings = {
   planRates: PlanRate[];
   /** Where "Write to us" messages are answered from. */
   supportUrl: string | null;
+  /** How long a new account gets before it has to subscribe. */
+  trialDays: number;
   updatedAt: string | null;
   updatedBy: string | null;
 };
@@ -40,6 +42,7 @@ export const defaultSettings: AdminSettings = {
   maintenance: { enabled: false, message: "", until: null },
   planRates: [],
   supportUrl: null,
+  trialDays: 7,
   updatedAt: null,
   updatedBy: null,
 };
@@ -120,6 +123,11 @@ function parse(valueJson: string): Partial<AdminSettings> {
           : [];
       }),
       supportUrl: typeof raw.supportUrl === "string" ? raw.supportUrl.slice(0, 300) : null,
+      // A trial of zero would lock every new account out on sight, and one of
+      // a year is a mistake rather than a policy.
+      trialDays: typeof raw.trialDays === "number" && raw.trialDays >= 1 && raw.trialDays <= 90
+        ? Math.round(raw.trialDays)
+        : defaultSettings.trialDays,
       updatedBy: typeof raw.updatedBy === "string" ? raw.updatedBy : null,
     };
   } catch {

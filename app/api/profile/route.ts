@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { activityLogs, commitAll, readDoc, setOp, trialClaims, updateOp, userDoc } from "@/db";
 import { formatUserReference } from "@/core/identity/user-reference";
+import { readAdminSettings } from "@/lib/admin-settings";
 import { startTrial, trialIdentityHash } from "@/lib/billing";
 import { createUserBackup } from "@/lib/backups";
 import { authenticatedRequest, authenticatedUser } from "@/lib/firebase-auth";
@@ -116,7 +117,8 @@ export async function POST(request: Request) {
     }
     const identityHash = existing ? null : await trialIdentityHash(owner);
     const priorTrial = identityHash ? await readDoc(trialClaims().doc(identityHash)) : null;
-    const trial = priorTrial ? { trialStartedAt: now, trialEndsAt: now } : startTrial(new Date(now));
+    const { trialDays } = await readAdminSettings();
+    const trial = priorTrial ? { trialStartedAt: now, trialEndsAt: now } : startTrial(new Date(now), trialDays);
 
     // The upsert is split, because creating and updating never wrote the same
     // fields: trial and consent timestamps are set once, at account creation.

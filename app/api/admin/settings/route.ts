@@ -27,6 +27,9 @@ const settingsInput = z.object({
     amountPaise: z.number().int().positive().max(100_000_00),
   })).max(subscriptionPlans.length),
   supportUrl: z.string().trim().url().max(300).nullable().optional(),
+  // Bounded: a trial of zero locks every new account out on sight, and one of
+  // a year is a mistake rather than a policy.
+  trialDays: z.number().int().min(1).max(90),
 });
 
 export async function GET() {
@@ -57,6 +60,7 @@ export async function PUT(request: Request) {
       },
       planRates: input.planRates.map((rate) => ({ code: rate.code as never, amountPaise: rate.amountPaise })),
       supportUrl: input.supportUrl ?? null,
+      trialDays: input.trialDays,
     }, identity.uid);
 
     // Under the administrator's own tree: who changed a published price, and

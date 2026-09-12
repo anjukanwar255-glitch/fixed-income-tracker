@@ -13,7 +13,7 @@ import { AuthFlow } from "@/features/auth/auth-flow";
 import { DashboardScreen } from "@/features/dashboard/dashboard-screen";
 import { SubscriptionGate } from "@/features/billing/subscription-gate";
 import { FinancialYearSelect, financialYearsFor } from "@/features/app/financial-year-select";
-import { MaintenanceNotice, useMaintenanceNotice } from "@/features/app/maintenance-notice";
+import { MaintenanceNotice, usePublicSettings } from "@/features/app/maintenance-notice";
 import { AddInvestmentSheet } from "@/features/investments/add-investment-sheet";
 import { InvestmentDetailScreen } from "@/features/investments/investment-detail-screen";
 import { InvestmentListScreen } from "@/features/investments/investment-list-screen";
@@ -78,7 +78,7 @@ export function FixedIncomeApp() {
   const [editingInvestment, setEditingInvestment] = useState<PortfolioInvestment | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [reminderOpen, setReminderOpen] = useState(false);
-  const maintenance = useMaintenanceNotice();
+  const { maintenance, supportUrl } = usePublicSettings();
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSplash(false), 720);
@@ -262,7 +262,7 @@ export function FixedIncomeApp() {
           ) : screen === "subscription" ? (
             <SubscriptionScreen entitlement={billing.entitlement} plans={billing.plans} displayName={displayName} email={ownAccount.profile?.email ?? null} phoneNumber={auth.user?.phoneNumber ?? null} onBillingChanged={loadBilling} />
           ) : screen === "feedback" ? (
-            <FeedbackScreen appContext={`screen:${screen} · fy:${financialYear}`} />
+            <FeedbackScreen supportUrl={supportUrl} appContext={`screen:${screen} · fy:${financialYear}`} />
           ) : screen === "tds" ? (
             <TdsScreen investments={investments} onOpenInvestment={openInvestment} financialYear={financialYear} />
           ) : (

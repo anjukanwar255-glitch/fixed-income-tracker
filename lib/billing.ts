@@ -69,9 +69,13 @@ export async function requireEntitlement(ownerId: string) {
   }, { status: 402 });
 }
 
-export function startTrial(now = new Date()) {
+export function startTrial(now = new Date(), days = 7) {
   const start = now.toISOString();
-  const end = new Date(now.getTime() + 7 * 86_400_000).toISOString();
+  // Fixed at the moment the account is created. Shortening the trial later
+  // must not cut short one already running — someone who was told seven days
+  // was told seven days.
+  const length = Number.isFinite(days) && days >= 1 && days <= 90 ? Math.round(days) : 7;
+  const end = new Date(now.getTime() + length * 86_400_000).toISOString();
   return { trialStartedAt: start, trialEndsAt: end };
 }
 

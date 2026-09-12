@@ -20,6 +20,7 @@ type Settings = {
   maintenance: { enabled: boolean; message: string; until: string | null };
   planRates: { code: PlanCode; amountPaise: number }[];
   supportUrl: string | null;
+  trialDays: number;
   updatedAt: string | null;
 };
 
@@ -96,6 +97,7 @@ export function AdminConsole() {
           },
           planRates: settings.planRates,
           supportUrl: settings.supportUrl || null,
+          trialDays: settings.trialDays,
         }),
       });
       const result = await response.json() as { error?: string };
@@ -233,6 +235,15 @@ export function AdminConsole() {
                   ))}
                 </div>
                 <p className="field-note">A new price applies to new subscriptions. Anyone already subscribed keeps what they bought until it renews.</p>
+              </section>
+
+              <section className="settings-card stacked-card">
+                <div className="section-heading"><div><h2>Free trial</h2><p>How long a new account gets before it has to subscribe</p></div><ReceiptIndianRupee /></div>
+                <div className="form-field">
+                  <Label htmlFor="admin-trial">Trial length (days)</Label>
+                  <Input id="admin-trial" inputMode="numeric" value={String(settings?.trialDays ?? 7)} onChange={(event) => setSettings((current) => current && ({ ...current, trialDays: Number(event.target.value) || 0 }))} />
+                  <p className="field-note">Applies to accounts created from now on. A trial already running keeps the length it was given — someone told seven days was told seven days.</p>
+                </div>
               </section>
 
               <section className="settings-card stacked-card">

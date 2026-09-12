@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Wrench } from "lucide-react";
 
 type Notice = { enabled: boolean; message: string; until: string | null };
+type PublicSettings = { maintenance: Notice; supportUrl: string | null };
 
 /**
  * Says the app is being worked on, in place of the page it replaces.
@@ -17,17 +18,17 @@ type Notice = { enabled: boolean; message: string; until: string | null };
  * sign-in: an outage is exactly when someone cannot get past the sign-in
  * screen, and a notice only signed-in people can read is not a notice.
  */
-export function useMaintenanceNotice() {
-  const [notice, setNotice] = useState<Notice | null>(null);
+export function usePublicSettings() {
+  const [settings, setSettings] = useState<PublicSettings | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      void fetch("/api/public/maintenance", { cache: "no-store" })
+      void fetch("/api/public/settings", { cache: "no-store" })
         .then((response) => (response.ok ? response.json() : null))
-        .then((value: Notice | null) => { if (!cancelled) setNotice(value); })
-        // A failed check must not put the app into maintenance; it is the
-        // ordinary state that has to survive the settings being unreachable.
+        .then((value: PublicSettings | null) => { if (!cancelled) setSettings(value); })
+        // A failed check must not put the app into maintenance; the ordinary
+        // state is the one that has to survive the settings being unreachable.
         .catch(() => undefined);
     };
     load();
@@ -37,7 +38,10 @@ export function useMaintenanceNotice() {
     return () => { cancelled = true; window.clearInterval(timer); };
   }, []);
 
-  return notice?.enabled ? notice : null;
+  return {
+    maintenance: settings?.maintenance.enabled ? settings.maintenance : null,
+    supportUrl: settings?.supportUrl ?? null,
+  };
 }
 
 export function MaintenanceNotice({ notice }: { notice: Notice }) {

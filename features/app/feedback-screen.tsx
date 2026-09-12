@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, MessageSquare, Paperclip, Send, X } from "lucide-react";
+import { CheckCircle2, ExternalLink, LifeBuoy, MessageSquare, Paperclip, Send, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,7 @@ const allowed = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/pn
 
 type Sent = { id: string; category: string; subject: string; status: string; attachmentCount: number; createdAt: string };
 
-export function FeedbackScreen({ appContext }: { appContext: string }) {
+export function FeedbackScreen({ appContext, supportUrl }: { appContext: string; supportUrl: string | null }) {
   const [category, setCategory] = useState("issue");
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
@@ -137,6 +137,17 @@ export function FeedbackScreen({ appContext }: { appContext: string }) {
         </div>
         <p className="field-note">A screenshot of what went wrong tells us more than a description of it. PDF, JPG, JPEG or PNG, up to {MAX_ATTACHMENTS} files.</p>
       </section>
+
+      {supportUrl && (
+        <section className="settings-card">
+          <div className="section-heading"><div><h2>Need more than a message?</h2><p>For anything that needs a conversation rather than a note</p></div><LifeBuoy /></div>
+          <div className="settings-actions">
+            <Button variant="outline" onClick={() => window.open(supportUrl, "_blank", "noopener,noreferrer")}>
+              <ExternalLink /> Open support
+            </Button>
+          </div>
+        </section>
+      )}
 
       {sent.length > 0 && (
         <>
