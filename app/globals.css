@@ -148,6 +148,12 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 
 .app-shell { background:#f3f6fa; display:flex; min-height:100dvh; }
 .desktop-sidebar { background:linear-gradient(180deg,#0d2945,#0b2239); transition:width .18s; color:#f4fbfb; display:flex; flex-direction:column; height:100vh; height:100lvh; inset:0 auto auto 0; overflow-y:auto; overscroll-behavior:contain; padding:26px 18px 22px; position:fixed; width:244px; z-index:30; }
+/* Tucked inside the bar's right edge. Fixed rather than nested, because the
+   bar scrolls and a scrolling box clips whatever reaches past its own edge. */
+.sidebar-toggle { align-items:center; background:#173a5c; border:1px solid #ffffff1f; border-radius:11px; color:#a9dcd6; cursor:pointer; display:flex; height:54px; justify-content:center; left:216px; padding:0; position:fixed; top:50%; transform:translateY(-50%); transition:left .18s,background .15s,color .15s; width:22px; z-index:31; }
+.sidebar-toggle:hover { background:#21557f; color:#eafffb; }
+.sidebar-toggle svg { height:15px; transition:transform .18s; width:15px; }
+html[data-sidebar="collapsed"] .sidebar-toggle svg { transform:rotate(180deg); }
 .sidebar-brand { align-items:center; display:flex; gap:12px; padding:0 8px 28px; }
 .sidebar-brand > span:last-child { display:flex; flex-direction:column; line-height:1.1; }
 .sidebar-brand b { font-size:1rem; }
@@ -314,7 +320,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .confirm-dialog kbd { background:#eef3f7; border:1px solid #d5dfe8; border-bottom-width:2px; border-radius:6px; color:#26405a; font-family:inherit; font-size:.76rem; font-weight:700; padding:2px 6px; white-space:nowrap; }
 
 @media (max-width: 900px) {
-  .desktop-sidebar { width:210px; }.app-main { margin-left:210px; width:calc(100% - 210px); }.sidebar-toggle { left:210px; }.app-content { padding:25px 20px 70px; }.metric-grid { grid-template-columns:repeat(2,1fr); }.detail-summary-grid { grid-template-columns:repeat(2,1fr); }.tds-metric-grid { grid-template-columns:repeat(2,1fr); }
+  .desktop-sidebar { width:210px; }.app-main { margin-left:210px; width:calc(100% - 210px); }.sidebar-toggle { left:182px; }.app-content { padding:25px 20px 70px; }.metric-grid { grid-template-columns:repeat(2,1fr); }.detail-summary-grid { grid-template-columns:repeat(2,1fr); }.tds-metric-grid { grid-template-columns:repeat(2,1fr); }
 }
 
 @media (max-width: 700px) {
@@ -357,12 +363,6 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 
 /* 3. Collapsed to its icons, so a narrow screen can hand the width back to the
    content without losing the way around. */
-/* A tab growing out of the bar's edge. Fixed rather than nested, because the
-   bar scrolls and a scrolling box clips whatever reaches past its edge. */
-.sidebar-toggle { align-items:center; background:#12314f; border:0; border-left:1px solid #ffffff1a; border-radius:0 11px 11px 0; box-shadow:3px 0 10px #00121f4d; color:#9fd4ce; cursor:pointer; display:flex; height:52px; justify-content:center; left:244px; padding:0; position:fixed; top:50%; transform:translateY(-50%); transition:left .18s,background .15s,color .15s; width:19px; z-index:31; }
-.sidebar-toggle:hover { background:#1a4166; color:#eafffb; }
-.sidebar-toggle svg { height:15px; transition:transform .18s; width:15px; }
-html[data-sidebar="collapsed"] .sidebar-toggle svg { transform:rotate(180deg); }
 html[data-sidebar="collapsed"] .desktop-sidebar { padding-left:10px; padding-right:10px; width:72px; }
 html[data-sidebar="collapsed"] .app-main { margin-left:72px; width:calc(100% - 72px); }
 html[data-sidebar="collapsed"] .sidebar-brand span:last-child,
@@ -371,7 +371,7 @@ html[data-sidebar="collapsed"] .sidebar-add span,
 html[data-sidebar="collapsed"] .sidebar-trust p { display:none; }
 html[data-sidebar="collapsed"] .desktop-sidebar nav button,
 html[data-sidebar="collapsed"] .sidebar-add { justify-content:center; padding-left:0; padding-right:0; }
-html[data-sidebar="collapsed"] .sidebar-toggle { left:72px; }
+html[data-sidebar="collapsed"] .sidebar-toggle { left:44px; }
 html[data-sidebar="collapsed"] .sidebar-brand { justify-content:center; }
 html[data-sidebar="collapsed"] .sidebar-add { gap:0; }
 html[data-sidebar="collapsed"] .sidebar-add svg { margin:0; }
