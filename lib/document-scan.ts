@@ -25,6 +25,7 @@ const THINKING_BUDGET = 0;
 const DEFAULT_MODEL = "gemini-2.5-flash";
 
 export type ScannedInvestment = {
+  investmentType?: string;
   investmentName?: string;
   issuerName?: string;
   issuerWebsite?: string;
@@ -57,6 +58,7 @@ const MAX_SCHEDULE_ROWS = 600;
 const responseSchema = {
   type: Type.OBJECT,
   properties: {
+    investmentType: { type: Type.STRING, description: "What kind of holding this is. One of: fixed-deposit, corporate-fd, corporate-bond, government-bond, ncd, debenture, government-security, stocks, mutual-fund-lumpsum, mutual-fund-sip, insurance, term-insurance, other. Read it from what the paper actually is — a deal sheet for a listed bond is corporate-bond, a company's deposit receipt is corporate-fd, a bank's is fixed-deposit." },
     investmentName: { type: Type.STRING, description: "Product name as printed, e.g. 'Muthoot Fincorp May 2029'." },
     issuerName: { type: Type.STRING, description: "The bank or company that issued it, not the broker or platform." },
     issuerWebsite: { type: Type.STRING, description: "The issuer's own website, as printed — just the domain, e.g. 'muthootfinance.com'. Only the company that issued the security, never the broker's or the platform's. Omit it if the documents do not print one." },
@@ -150,7 +152,13 @@ export type ScanSource = {
  * behaves across month lengths and leap years — so they are sent together and
  * reconciled in a single pass rather than scanned separately and merged here.
  */
-export async function scanInvestmentDocuments(sources: ScanSource[]): Promise<ScannedInvestment> {
+export async function scanInvestmentDocuments(sources: ScanSource[], lookAgainFor: string[] = []): Promise<ScannedInvestment> {
+  const focus = lookAgainFor.length
+    ? `
+
+A first reading of these same documents came back without: ${lookAgainFor.join(", ")}. Look specifically for those, including in tables, footers and figures printed beside a different label than the one used here. If a value genuinely is not in the documents, leave it out — do not supply something close to it.`
+    : "";
+
   const response = await getClient().models.generateContent({
     model: env.DOCUMENT_SCAN_MODEL ?? DEFAULT_MODEL,
     contents: [
@@ -163,7 +171,7 @@ export async function scanInvestmentDocuments(sources: ScanSource[]): Promise<Sc
             { text: `Document: ${label}` },
             { inlineData: { mimeType, data: Buffer.from(bytes).toString("base64") } },
           ]),
-          { text: INSTRUCTIONS },
+          { text: INSTRUCTIONS + focus },
         ],
       },
     ],
@@ -274,6 +282,11 @@ function sanitise(raw: Record<string, unknown>): ScannedInvestment {
     if (rows.length) result.repaymentSchedule = rows;
   }
 
+  result.investmentType = oneOf(raw.investmentType, [
+    "fixed-deposit", "corporate-fd", "corporate-bond", "government-bond", "ncd",
+    "debenture", "government-security", "stocks", "mutual-fund-lumpsum",
+    "mutual-fund-sip", "insurance", "term-insurance", "other",
+  ]);
   result.payoutFrequency = oneOf(raw.payoutFrequency, ["monthly", "quarterly", "half-yearly", "yearly", "on-maturity"]);
   result.dayCountBasis = oneOf(raw.dayCountBasis, ["actual-365", "actual-actual", "30-360"]);
   result.interestType = oneOf(raw.interestType, ["simple", "compound", "cumulative"]);

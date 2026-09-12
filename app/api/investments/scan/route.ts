@@ -55,12 +55,19 @@ export async function POST(request: Request) {
   // and a deal sheet overlap heavily but disagree in places, and knowing which
   // is which is what decides who wins.
   let attached: { role: DocumentRole; file: File }[];
+  let lookAgainFor: string[] = [];
   try {
     const form = await request.formData();
     attached = DOCUMENT_ROLES.flatMap((role) => {
       const entry = form.get(role);
       return entry instanceof File ? [{ role, file: entry }] : [];
     });
+    lookAgainFor = (form.get("lookAgainFor") ?? "")
+      .toString()
+      .split(",")
+      .map((field: string) => field.trim())
+      .filter((field: string) => /^[a-zA-Z ]{2,40}$/.test(field))
+      .slice(0, 12);
   } catch {
     return Response.json({ error: "The upload could not be read" }, { status: 400 });
   }
@@ -80,8 +87,13 @@ export async function POST(request: Request) {
     }
   }
 
+  /*
+   * A second pass names what the first one missed. The reader is asked at
+   * temperature 0, so repeating the same question returns the same answer
+   * word for word — only a different question can produce a different one.
+   */
   try {
-    const fields = await scanInvestmentDocuments(sources);
+    const fields = await scanInvestmentDocuments(sources, lookAgainFor);
     return Response.json({ fields }, { headers: { "cache-control": "no-store" } });
   } catch {
     return Response.json({ error: "The documents could not be read. Enter the details manually." }, { status: 503 });

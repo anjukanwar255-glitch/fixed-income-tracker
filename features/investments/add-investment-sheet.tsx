@@ -15,6 +15,7 @@ import {
   ReceiptIndianRupee,
   PieChart,
   Repeat,
+  AlertTriangle,
   ScanLine,
   ShieldCheck,
   TrendingUp,
@@ -99,6 +100,14 @@ function suggestedTdsRate(current: string, linked: boolean) {
   const untouched = !current || current === RATE_WITH_PAN || current === RATE_WITHOUT_PAN;
   return untouched ? next : current;
 }
+
+const ESSENTIAL_SCAN_FIELDS: { key: string; label: string }[] = [
+  { key: "issuerName", label: "issuer name" },
+  { key: "amountPaidRupees", label: "amount paid" },
+  { key: "interestRatePercent", label: "interest rate" },
+  { key: "maturityDate", label: "maturity date" },
+  { key: "firstPayoutDate", label: "first payout date" },
+];
 
 const payoutOptions: { value: PayoutFrequency; label: string }[] = [
   { value: "monthly", label: "Monthly" },
@@ -206,6 +215,9 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [scheduleFile, setScheduleFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [rereading, setRereading] = useState(false);
+  /** What the documents left blank after both passes, for the investor to fill. */
+  const [scanGaps, setScanGaps] = useState<string[]>([]);
 
   /**
    * Reads the attached documents and writes what they say into the form.
@@ -228,14 +240,32 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     if (!attached.length) return;
     setScanning(true);
     try {
-      const form = new FormData();
-      for (const { role, file } of attached) form.append(role, file);
-      // No content-type header: the browser sets the multipart boundary.
-      const response = await apiFetch("/api/investments/scan", { method: "POST", body: form });
-      const payload = await response.json() as { fields?: Record<string, unknown>; error?: string };
-      if (!response.ok || !payload.fields) throw new Error(payload.error ?? "The documents could not be read");
+      const read = async (lookAgainFor: string[]) => {
+        const form = new FormData();
+        for (const { role, file } of attached) form.append(role, file);
+        if (lookAgainFor.length) form.append("lookAgainFor", lookAgainFor.join(","));
+        // No content-type header: the browser sets the multipart boundary.
+        const response = await apiFetch("/api/investments/scan", { method: "POST", body: form });
+        const payload = await response.json() as { fields?: Record<string, unknown>; error?: string };
+        if (!response.ok || !payload.fields) throw new Error(payload.error ?? "The documents could not be read");
+        return payload.fields;
+      };
 
-      const found = payload.fields;
+      let found = await read([]);
+      const stillMissing = () => ESSENTIAL_SCAN_FIELDS.filter(({ key }) => found[key] === undefined || found[key] === "");
+      if (stillMissing().length) {
+        setRereading(true);
+        try {
+          const second = await read(stillMissing().map(({ label }) => label));
+          // Only gaps are filled from the second pass. Where both answered,
+          // the first stands — a re-read prompted about a field is likelier to
+          // reach for something close to it than to leave it out again.
+          found = { ...second, ...Object.fromEntries(Object.entries(found).filter(([, value]) => value !== undefined && value !== "")) };
+        } finally {
+          setRereading(false);
+        }
+      }
+
       let filled = 0;
       const applyText = (value: unknown, set: (next: string) => void) => {
         if (typeof value === "string" && value) { set(value); filled += 1; }
@@ -244,6 +274,10 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
         if (typeof value === "number") { set(String(value)); filled += 1; }
       };
 
+      if (typeof found.investmentType === "string" && investmentTypeCatalog.some((entry) => entry.value === found.investmentType)) {
+        setType(found.investmentType as InvestmentType);
+        filled += 1;
+      }
       applyText(found.investmentName, setName);
       applyText(found.issuerName, setIssuer);
       applyText(found.issuerWebsite, setIssuerWebsite);
@@ -333,6 +367,8 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
         documentType: role === "schedule" ? "repayment-schedule" : certificateType(type),
       })));
 
+      const gaps = stillMissing().map(({ label }) => label);
+      setScanGaps(gaps);
       toast.success(filled
         ? `Read ${filled} field${filled === 1 ? "" : "s"} — check each against the documents`
         : "Nothing could be read from those documents");
@@ -525,7 +561,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     setDeclarationApplicable(false); setBankName(""); setIfsc(""); setIfscLookup(null); setAccountNumber(""); setPaymentMode("bank-transfer");
     setNominee(""); setBroker(""); setAdvisor(""); setAdvisorMobile(""); setNotes(""); setAttachments([]);
     setFaceValue(""); setInterestStartDate(""); setDpId(""); setClientId(""); setOrderReference("");
-    setDealSheetFile(null); setScheduleFile(null); setScannedSchedule([]);
+    setDealSheetFile(null); setScheduleFile(null); setScannedSchedule([]); setScanGaps([]);
     setUnits(""); setPricePerUnit(""); setCurrentPrice(""); setContribution("");
     setContributionFrequency("monthly"); setContributionStart(""); setContributionEnd("");
     setSumAssured(""); setPolicyNumber("");
@@ -547,7 +583,41 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
         <div className="add-sheet-body">
           {step === 1 && (
             <div className="form-section">
-              <FormHeading title="What are you investing in?" description="Choose the closest type. You can change it later with an audit entry." />
+              <FormHeading title="What are you investing in?" description="Attach the paperwork and it will choose the type and fill the form, or pick one yourself." />
+              {/*
+                Two named slots rather than one heap of files. Which paper is
+                which stops being a guess — for whoever is filling the form,
+                and for the reader, which is told the role of each document and
+                can prefer the deal sheet's terms over a statement's summary.
+              */}
+              <div className="scan-slots">
+                <ScanSlot
+                  label="Deal sheet, bond agreement or deposit receipt"
+                  hint="The terms as issued"
+                  file={dealSheetFile}
+                  disabled={scanning}
+                  onSelect={(file) => attachForScan("deal", file)}
+                />
+                <ScanSlot
+                  label="Repayment or interest schedule"
+                  hint="Payout dates and amounts, if you have it"
+                  file={scheduleFile}
+                  disabled={scanning}
+                  onSelect={(file) => attachForScan("schedule", file)}
+                />
+              </div>
+              <p className="scan-note">
+                {rereading
+                  ? <><Loader2 className="spinning" aria-hidden="true" /> Some values did not come back — reading again for those…</>
+                  : scanning
+                    ? <><Loader2 className="spinning" aria-hidden="true" /> Reading the documents…</>
+                    : "Each document is read as soon as it is attached, and re-read when the other arrives. Every value is yours to check before saving."}
+              </p>
+              {scanGaps.length > 0 && !scanning && (
+                <div className="mismatch-note">
+                  <AlertTriangle /> The documents did not give: {scanGaps.join(", ")}. Enter {scanGaps.length === 1 ? "it" : "them"} by hand, or attach a clearer copy.
+                </div>
+              )}
               <RadioGroup value={type} onValueChange={(value) => setType(value as InvestmentType)}>
                 {typeGroups.map(([group, entries]) => (
                   <div className="type-group" key={group}>
@@ -570,36 +640,6 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
           {step === 2 && (
             <div className="form-section">
               <FormHeading title="Investment details" description="Enter the values shown on the receipt or certificate." />
-              {/*
-                Two named slots rather than one heap of files. Which paper is
-                which stops being a guess — for whoever is filling the form,
-                and for the reader, which is told the role of each document and
-                can prefer the deal sheet's terms over a statement's summary.
-                A deposit has only one paper, so it gets one slot.
-              */}
-              <div className="scan-slots">
-                <ScanSlot
-                  label={bondDocument ? "Deal sheet or bond agreement" : "Deposit receipt or certificate"}
-                  hint={bondDocument ? "Issuer, coupon rate, price breakdown" : "The terms as issued"}
-                  file={dealSheetFile}
-                  disabled={scanning}
-                  onSelect={(file) => attachForScan("deal", file)}
-                />
-                {bondDocument && (
-                  <ScanSlot
-                    label="Repayment or interest schedule"
-                    hint="Payout dates and amounts"
-                    file={scheduleFile}
-                    disabled={scanning}
-                    onSelect={(file) => attachForScan("schedule", file)}
-                  />
-                )}
-              </div>
-              <p className="scan-note">
-                {scanning
-                  ? <><Loader2 className="spinning" aria-hidden="true" /> Reading the documents…</>
-                  : "Each document is read as soon as it is attached, and re-read when the other arrives. Every value is yours to check before saving."}
-              </p>
               <div className="field-grid">
                 <Field label="Investment name" value={name} setValue={setName} placeholder="e.g. Secure Income FD" />
                 {/*
@@ -887,7 +927,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
 
         <SheetFooter className="add-sheet-footer">
           <Button variant="outline" onClick={back}>{step > 1 && <ChevronLeft />}{step === 1 ? "Cancel" : "Back"}</Button>
-          {step < 6 ? <Button onClick={next}>Continue <ChevronRight /></Button> : <Button onClick={() => void save()} disabled={saving}><Check /> {saving ? "Saving…" : "Save investment"}</Button>}
+          {step < 6 ? <Button onClick={next} disabled={scanning}>{scanning ? "Reading…" : <>Continue <ChevronRight /></>}</Button> : <Button onClick={() => void save()} disabled={saving}><Check /> {saving ? "Saving…" : "Save investment"}</Button>}
         </SheetFooter>
       </SheetContent>
     </Sheet>
