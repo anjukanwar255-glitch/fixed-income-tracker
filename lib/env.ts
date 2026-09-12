@@ -23,6 +23,8 @@ export interface AppEnv {
   RAZORPAY_PLAN_HALF_YEARLY?: string;
   RAZORPAY_PLAN_YEARLY?: string;
   /** "true" turns on certificate scanning, which bills per document read. */
+  /** Comma-separated Firebase uids that always hold the administrator role. */
+  ADMIN_UIDS?: string;
   DOCUMENT_SCAN_ENABLED?: string;
   /** Overridable so a stronger model can be adopted without a code change. */
   DOCUMENT_SCAN_MODEL?: string;

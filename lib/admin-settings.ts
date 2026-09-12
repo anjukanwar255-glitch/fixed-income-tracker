@@ -1,4 +1,5 @@
 import { adminSettings, readDoc, userDoc } from "@/db";
+import { env } from "@/lib/env";
 import { subscriptionPlans, type PlanCode } from "@/lib/plans";
 
 /**
@@ -71,6 +72,7 @@ export async function writeAdminSettings(settings: Omit<AdminSettings, "updatedA
 
 /** Whether this account may change them. */
 export async function isAdministrator(uid: string) {
+  if (configuredAdministrators().includes(uid)) return true;
   try {
     const stored = await readDoc(userDoc(uid));
     return stored?.role === "admin" && !stored.deletedAt;
@@ -78,6 +80,10 @@ export async function isAdministrator(uid: string) {
     // An unreadable role is not an admin role.
     return false;
   }
+}
+
+function configuredAdministrators() {
+  return (env.ADMIN_UIDS ?? "").split(",").map((uid) => uid.trim()).filter(Boolean);
 }
 
 /**

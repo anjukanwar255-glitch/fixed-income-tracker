@@ -61,6 +61,15 @@ env:
   # Certificate scanning. Each read bills a Vertex AI call, so it is behind an
   # explicit switch rather than on by default. Authentication is the App
   # Hosting runtime's own identity — there is no API key.
+  # Administrators granted here rather than in the database. The first one
+  # cannot be granted the role by an administrator, and keeping it outside
+  # Firestore means read access to the database is not by itself a way to
+  # become one. Further administrators can be given the role in their user
+  # document without a deploy.
+  - variable: ADMIN_UIDS
+    value: "6Isfr4wXyJPX3ZQtI8P4rKJUK163"
+    availability:
+      - RUNTIME
   - variable: DOCUMENT_SCAN_ENABLED
     value: "true"
     availability:
