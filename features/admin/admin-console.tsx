@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Landmark, MessageSquare, Paperclip, ReceiptIndianRupee, ShieldCheck, Wrench } from "lucide-react";
+import { ArrowLeft, History, Landmark, MessageSquare, Paperclip, ReceiptIndianRupee, ShieldCheck, Trash2, Users, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
@@ -23,7 +24,12 @@ type Settings = {
   trialDays: number;
   monthlyScanLimit: number;
   updatedAt: string | null;
+  role: "admin" | "support";
+  capabilities: string[];
 };
+
+type StaffMember = { uid: string; name: string; role: "admin" | "support"; mobileE164: string | null; displayId: string | null };
+type StaffAction = { id: string; actorId: string; actorRole: string; action: string; subjectType: string; subjectId: string; summary: string; createdAt: string };
 
 type Message = {
   id: string;
@@ -37,12 +43,19 @@ type Message = {
   createdAt: string;
 };
 
-type Section = "maintenance" | "pricing" | "messages";
+type Section = "maintenance" | "pricing" | "messages" | "staff" | "activity";
 
-const sections: { value: Section; label: string; icon: typeof Wrench }[] = [
-  { value: "maintenance", label: "Maintenance", icon: Wrench },
-  { value: "pricing", label: "Pricing", icon: ReceiptIndianRupee },
+/**
+ * What each person sees. Staff are not shown the settings they cannot change —
+ * a control that refuses when pressed teaches people to distrust the screen,
+ * where an absent one simply says this is not yours to do.
+ */
+const sections: { value: Section; label: string; icon: typeof Wrench; needs?: string }[] = [
+  { value: "maintenance", label: "Maintenance", icon: Wrench, needs: "manage-service" },
+  { value: "pricing", label: "Pricing", icon: ReceiptIndianRupee, needs: "manage-pricing" },
   { value: "messages", label: "Messages", icon: MessageSquare },
+  { value: "staff", label: "Staff", icon: Users },
+  { value: "activity", label: "Activity", icon: History },
 ];
 
 /**
@@ -63,6 +76,10 @@ export function AdminConsole() {
   const [section, setSection] = useState<Section>("maintenance");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [actions, setActions] = useState<StaffAction[]>([]);
+  const [newStaffMobile, setNewStaffMobile] = useState("");
+  const [newStaffRole, setNewStaffRole] = useState<"support" | "admin">("support");
   const [permitted, setPermitted] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -75,7 +92,49 @@ export function AdminConsole() {
 
     const feedback = await apiFetch("/api/admin/feedback", { cache: "no-store" });
     if (feedback.ok) setMessages(((await feedback.json()) as { messages: Message[] }).messages);
+
+    const staffList = await apiFetch("/api/admin/staff", { cache: "no-store" });
+    if (staffList.ok) setStaff(((await staffList.json()) as { staff: StaffMember[] }).staff);
+
+    const trail = await apiFetch("/api/admin/activity", { cache: "no-store" });
+    if (trail.ok) setActions(((await trail.json()) as { actions: StaffAction[] }).actions);
   }, []);
+
+  const appointStaff = async () => {
+    try {
+      const response = await apiFetch("/api/admin/staff", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mobileE164: newStaffMobile.trim(), role: newStaffRole }),
+      });
+      const result = await response.json() as { error?: string; staff?: StaffMember[] };
+      if (!response.ok) throw new Error(result.error ?? "They could not be added");
+      setStaff(result.staff ?? []);
+      setNewStaffMobile("");
+      toast.success("Added");
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "They could not be added");
+    }
+  };
+
+  const removeStaff = async (member: StaffMember) => {
+    if (!window.confirm(`Remove console access for ${member.name || member.mobileE164 || "this account"}? Their own records are untouched.`)) return;
+    try {
+      const response = await apiFetch("/api/admin/staff", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ uid: member.uid }),
+      });
+      const result = await response.json() as { error?: string; staff?: StaffMember[] };
+      if (!response.ok) throw new Error(result.error ?? "Access could not be removed");
+      setStaff(result.staff ?? []);
+      toast.success("Access removed");
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Access could not be removed");
+    }
+  };
 
   useEffect(() => {
     if (auth.status !== "signed-in") return;
@@ -159,14 +218,17 @@ export function AdminConsole() {
   };
 
   const live = settings?.maintenance.enabled ?? false;
+  const allowed = sections.filter((entry) => !entry.needs || (settings?.capabilities ?? []).includes(entry.needs));
+  const open = allowed.some((entry) => entry.value === section) ? section : (allowed[0]?.value ?? "messages");
+  const canManageStaff = (settings?.capabilities ?? []).includes("manage-staff");
 
   return (
     <div className="app-shell">
       <aside className="desktop-sidebar">
-        <div className="sidebar-brand"><span className="brand-mark"><Landmark /></span><span><b>Portfolio</b><small>Admin console</small></span></div>
+        <div className="sidebar-brand"><span className="brand-mark"><Landmark /></span><span><b>Portfolio</b><small>{settings?.role === "support" ? "Staff console" : "Admin console"}</small></span></div>
         <nav aria-label="Admin sections">
-          {sections.map(({ value, label, icon: Icon }) => (
-            <button data-active={section === value} key={value} onClick={() => setSection(value)}><Icon /><span>{label}</span></button>
+          {allowed.map(({ value, label, icon: Icon }) => (
+            <button data-active={open === value} key={value} onClick={() => setSection(value)}><Icon /><span>{label}</span></button>
           ))}
         </nav>
         <button className="sidebar-add" onClick={() => { window.location.href = "/"; }}><ArrowLeft /><span>Back to the app</span></button>
@@ -186,7 +248,7 @@ export function AdminConsole() {
         </header>
 
         <main className="app-content">
-          {section === "maintenance" && (
+          {open === "maintenance" && (
             <div className="screen secondary-screen">
               <header className="screen-header"><div><p className="screen-kicker">Public site</p><h1>Maintenance notice</h1></div></header>
 
@@ -212,7 +274,7 @@ export function AdminConsole() {
             </div>
           )}
 
-          {section === "pricing" && (
+          {open === "pricing" && (
             <div className="screen secondary-screen">
               <header className="screen-header"><div><p className="screen-kicker">Billing</p><h1>Subscription prices</h1></div></header>
 
@@ -265,7 +327,73 @@ export function AdminConsole() {
             </div>
           )}
 
-          {section === "messages" && (
+          {open === "staff" && (
+            <div className="screen secondary-screen">
+              <header className="screen-header"><div><p className="screen-kicker">Console access</p><h1>Staff</h1></div></header>
+
+              {canManageStaff && (
+                <section className="settings-card stacked-card">
+                  <div className="section-heading"><div><h2>Add someone</h2><p>They must have opened the app and finished setting up first — this gives an existing account access, it does not create one</p></div><Users /></div>
+                  <div className="field-grid">
+                    <div className="form-field">
+                      <Label htmlFor="staff-mobile">Mobile number they sign in with</Label>
+                      <Input id="staff-mobile" value={newStaffMobile} onChange={(event) => setNewStaffMobile(event.target.value)} placeholder="+919876543210" />
+                    </div>
+                    <div className="form-field">
+                      <Label htmlFor="staff-role">Access level</Label>
+                      <Select value={newStaffRole} onValueChange={(value) => setNewStaffRole(value as "support" | "admin")}>
+                        <SelectTrigger id="staff-role"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="support">Staff — accounts and messages</SelectItem>
+                          <SelectItem value="admin">Administrator — everything</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <p className="field-note">Staff can look at accounts and answer messages. They cannot change pricing, take the site down, or add anyone else.</p>
+                  <div className="settings-actions"><Button onClick={() => void appointStaff()}>Add</Button></div>
+                </section>
+              )}
+
+              <div className="simple-list">
+                {staff.map((member) => (
+                  <div className="simple-row" key={member.uid}>
+                    <span className="row-icon"><Users /></span>
+                    <span className="row-copy"><b>{member.name || "Unnamed account"}</b><small>{member.mobileE164 ?? member.displayId ?? member.uid}</small></span>
+                    <Badge className={member.role === "admin" ? "status-received" : "status-upcoming"}>{member.role === "admin" ? "Administrator" : "Staff"}</Badge>
+                    {canManageStaff && (
+                      <Button variant="ghost" size="icon" aria-label={`Remove ${member.name || "this account"}`} onClick={() => void removeStaff(member)}><Trash2 /></Button>
+                    )}
+                  </div>
+                ))}
+                {!staff.length && <p className="field-note">Nobody has console access except the configured administrator.</p>}
+              </div>
+            </div>
+          )}
+
+          {open === "activity" && (
+            <div className="screen secondary-screen">
+              <header className="screen-header"><div><p className="screen-kicker">Who did what</p><h1>Activity</h1></div></header>
+              <div className="admin-messages">
+                {actions.map((entry) => (
+                  <article className="admin-message" key={entry.id}>
+                    <header>
+                      <b>{entry.summary}</b>
+                      <span>{formatWhen(entry.createdAt)}</span>
+                    </header>
+                    <footer>
+                      <span>{staff.find((member) => member.uid === entry.actorId)?.name ?? entry.actorId}</span>
+                      <span>{entry.actorRole === "admin" ? "Administrator" : "Staff"}</span>
+                      <span>{entry.subjectType}</span>
+                    </footer>
+                  </article>
+                ))}
+                {!actions.length && <p className="field-note">Nothing has been done through the console yet.</p>}
+              </div>
+            </div>
+          )}
+
+          {open === "messages" && (
             <div className="screen secondary-screen">
               <header className="screen-header"><div><p className="screen-kicker">Write to us</p><h1>Messages</h1></div></header>
               <div className="secondary-summary">
@@ -295,8 +423,8 @@ export function AdminConsole() {
       </div>
 
       <nav className="mobile-bottom-nav" aria-label="Admin sections">
-        {sections.map(({ value, label, icon: Icon }) => (
-          <button data-active={section === value} key={value} onClick={() => setSection(value)}><Icon /><small>{label}</small></button>
+        {allowed.map(({ value, label, icon: Icon }) => (
+          <button data-active={open === value} key={value} onClick={() => setSection(value)}><Icon /><small>{label}</small></button>
         ))}
         <button onClick={() => { window.location.href = "/"; }}><ArrowLeft /><small>App</small></button>
       </nav>

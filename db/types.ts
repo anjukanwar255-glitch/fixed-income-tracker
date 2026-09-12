@@ -365,6 +365,29 @@ export interface FinancialYearDoc extends Timestamps {
   isClosed: boolean;
 }
 
+/**
+ * Something a member of staff did, in one place rather than scattered.
+ *
+ * The per-account trail answers "what happened to this account". This answers
+ * "what has this person been doing" — which cannot be read out of the first
+ * without opening every account in turn, and is the question asked when
+ * someone's work has to be reviewed.
+ *
+ * No soft delete: a record of who did what is worth nothing if it can be
+ * tidied away by the person it describes.
+ */
+export interface StaffActionDoc {
+  id: string;
+  actorId: string;
+  actorRole: string;
+  action: string;
+  subjectType: string;
+  subjectId: string;
+  summary: string;
+  detailJson?: string | null;
+  createdAt: string;
+}
+
 export interface AdminSettingDoc extends Timestamps {
   id: string;
   settingType: string;

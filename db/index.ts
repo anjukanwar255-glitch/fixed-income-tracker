@@ -14,6 +14,7 @@ export { FieldValue } from "firebase-admin/firestore";
 import type {
   ActivityLogDoc,
   AdminSettingDoc,
+  StaffActionDoc,
   BackupRunDoc,
   ClosureDoc,
   ContributionDoc,
@@ -90,6 +91,15 @@ export function investmentTypes() {
 
 export function financialYears() {
   return getDb().collection("financialYears") as CollectionReference<FinancialYearDoc>;
+}
+
+export function staffActions() {
+  return getDb().collection("staffActions") as CollectionReference<StaffActionDoc>;
+}
+
+/** Every account. Only the console reads across this. */
+export function users() {
+  return getDb().collection("users") as CollectionReference<UserDoc>;
 }
 
 export function adminSettings() {

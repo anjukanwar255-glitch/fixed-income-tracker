@@ -2,7 +2,8 @@ import { z } from "zod";
 
 import { activityLogs, setOp, commitAll } from "@/db";
 import { subscriptionPlans } from "@/lib/plans";
-import { isAdministrator, readAdminSettings, writeAdminSettings } from "@/lib/admin-settings";
+import { readAdminSettings, writeAdminSettings } from "@/lib/admin-settings";
+import { can, recordStaffAction, resolveActor } from "@/lib/staff";
 import { authenticatedUser } from "@/lib/firebase-auth";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -37,17 +38,24 @@ const settingsInput = z.object({
 
 export async function GET() {
   const identity = await authenticatedUser();
-  if (!identity) return Response.json({ error: "Authentication required" }, { status: 401 });
-  if (!await isAdministrator(identity.uid)) return Response.json({ error: "Not permitted" }, { status: 403 });
-  return Response.json(await readAdminSettings(), { headers: { "cache-control": "no-store" } });
+  const actor = identity ? await resolveActor(identity.uid) : null;
+  if (!actor) return Response.json({ error: "Not permitted" }, { status: 403 });
+  return Response.json({
+    ...await readAdminSettings(),
+    role: actor.role,
+    capabilities: actor.capabilities,
+  }, { headers: { "cache-control": "no-store" } });
 }
 
 export async function PUT(request: Request) {
   const identity = await authenticatedUser();
-  if (!identity) return Response.json({ error: "Authentication required" }, { status: 401 });
-  if (!await isAdministrator(identity.uid)) return Response.json({ error: "Not permitted" }, { status: 403 });
+  const actor = identity ? await resolveActor(identity.uid) : null;
+  if (!can(actor, "manage-pricing") || !can(actor, "manage-service")) {
+    return Response.json({ error: "Only an administrator can change pricing or take the site down for maintenance" }, { status: 403 });
+  }
+  const identityUid = actor!.uid;
 
-  const limited = await rateLimit(request, "admin-settings", identity.uid, 60, 60 * 60 * 1000);
+  const limited = await rateLimit(request, "admin-settings", identityUid, 60, 60 * 60 * 1000);
   if (limited) return limited;
 
   const parsed = settingsInput.safeParse(await request.json().catch(() => null));
@@ -65,12 +73,12 @@ export async function PUT(request: Request) {
       supportUrl: input.supportUrl ?? null,
       trialDays: input.trialDays,
       monthlyScanLimit: input.monthlyScanLimit,
-    }, identity.uid);
+    }, identityUid);
 
     // Under the administrator's own tree: who changed a published price, and
     // when, is the first thing anyone asks afterwards.
     const logId = crypto.randomUUID();
-    await commitAll([setOp(activityLogs(identity.uid).doc(logId), {
+    await commitAll([setOp(activityLogs(identityUid).doc(logId), {
       id: logId,
       actorType: "admin",
       action: "updated",
@@ -81,6 +89,14 @@ export async function PUT(request: Request) {
       createdAt: updatedAt,
     })]);
 
+    await recordStaffAction({
+      actor: actor!,
+      action: input.maintenance.enabled ? "maintenance-on" : "settings-updated",
+      subjectType: "settings",
+      subjectId: "global",
+      summary: input.maintenance.enabled ? "Maintenance notice turned on" : "Pricing or service settings updated",
+      detail: input,
+    });
     return Response.json({ updatedAt });
   } catch {
     return Response.json({ error: "The settings could not be saved" }, { status: 503 });
