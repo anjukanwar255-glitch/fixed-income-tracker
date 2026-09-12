@@ -414,7 +414,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
 
         <TabsContent value="documents" className="detail-tab-content">
           <SectionTitle title="Documents" description="Private files linked to this investment" />
-          <div className="simple-list">
+          <div className="document-list">
             {investment.documents.map((document) => (
               <div className="document-row" key={document.id}><span><FileText /><b>{document.documentName}</b><small>{labelType(document.documentType)} · {formatBytes(document.sizeBytes)}</small></span><span className="document-actions"><Button variant="ghost" size="icon" aria-label={`Download ${document.documentName}`} onClick={() => void saveDocument(document.id, document.documentName)}><Download /></Button><Button variant="ghost" size="icon" aria-label={`Delete ${document.documentName}`} onClick={() => void deleteDocument(document.id)}><Trash2 /></Button></span></div>
             ))}
