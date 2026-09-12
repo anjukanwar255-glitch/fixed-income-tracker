@@ -32,6 +32,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en-IN">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: "try{var s=localStorage.getItem('sidebar');if(s){document.documentElement.dataset.sidebar=s}}catch(e){}",
+          }}
+        />
+      </head>
       <body className="antialiased"><PwaRegistration />{children}</body>
     </html>
   );

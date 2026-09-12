@@ -438,8 +438,8 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
                 <div className="detail-payout-row" key={entry.id}>
                   <span className={`payout-date-icon ${settled ? "received" : ""}`}><CalendarDays aria-hidden="true" /></span>
                   <span className="detail-payout-date"><b>{formatDate(entry.dueDate)}</b><small>{entry.financialYear}</small></span>
-                  <span><small>Due</small><b>{formatMoney(entry.amountPaise)}</b></span>
-                  <span><small>{settled ? "Paid" : "Status"}</small><b>{settled ? formatMoney(entry.paidAmountPaise ?? entry.amountPaise) : labelType(entry.status)}</b></span>
+                  <span className="payout-figure"><small>Due</small><b>{formatMoney(entry.amountPaise)}</b></span>
+                  <span className="payout-figure"><small>{settled ? "Paid" : "Status"}</small><b>{settled ? formatMoney(entry.paidAmountPaise ?? entry.amountPaise) : labelType(entry.status)}</b></span>
                   {settled
                     ? <Badge className="status-received"><CheckCircle2 /> Paid</Badge>
                     : entry.status === "upcoming"
@@ -593,9 +593,9 @@ function PayoutList({ investment, onConfirm, limit }: { investment: PortfolioInv
     return <div className="detail-payout-row" key={payout.id}>
       <span className={`payout-date-icon ${settled ? "received" : ""}`}><CalendarDays aria-hidden="true" /></span>
       <span className="detail-payout-date"><b>{formatDate(payout.dueDate)}</b><small>{payout.financialYear}</small></span>
-      <span><small>Interest</small><b>{formatMoney(payout.grossInterestPaise)}</b>{payout.principalRepaidPaise > 0n && <small>+{formatMoney(payout.principalRepaidPaise)} principal</small>}</span>
-      <span><small>Expected TDS</small><b>{formatMoney(payout.expectedTdsPaise)}</b></span>
-      <span><small>{settled ? "Received" : "Expected credit"}</small><b>{formatMoney(payout.receivedAmountPaise ?? payout.expectedNetPaise)}</b></span>
+      <span className="payout-figure"><small>Interest</small><b>{formatMoney(payout.grossInterestPaise)}</b>{payout.principalRepaidPaise > 0n && <small>+{formatMoney(payout.principalRepaidPaise)} principal</small>}</span>
+      <span className="payout-figure"><small>Expected TDS</small><b>{formatMoney(payout.expectedTdsPaise)}</b></span>
+      <span className="payout-figure"><small>{settled ? "Received" : "Expected credit"}</small><b>{formatMoney(payout.receivedAmountPaise ?? payout.expectedNetPaise)}</b></span>
       {settled ? <Badge className="status-received"><CheckCircle2 /> {labelType(payout.status)}</Badge> : payout.status === "not-received" ? <Button size="sm" onClick={() => onConfirm(payout, "received")}>Update receipt</Button> : actionable ? <span className="payout-actions"><Button size="sm" onClick={() => onConfirm(payout, "received")}>Received</Button><Button size="sm" variant="outline" onClick={() => onConfirm(payout, "not-received")}>Not received</Button></span> : <Badge className="status-upcoming"><Clock3 /> Upcoming</Badge>}
     </div>;
   })}</div>;

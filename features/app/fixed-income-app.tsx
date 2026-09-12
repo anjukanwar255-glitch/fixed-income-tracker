@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell, CalendarClock, CirclePlus, CreditCard, Home, Landmark, Menu, MessageSquare, ReceiptIndianRupee, UserRound, WalletCards } from "lucide-react";
+import { Bell, CalendarClock, ChevronLeft, CirclePlus, CreditCard, Home, Landmark, Menu, MessageSquare, ReceiptIndianRupee, UserRound, WalletCards } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
@@ -40,6 +40,17 @@ const navItems: { value: Screen; label: string; icon: typeof Home }[] = [
  * from Profile on a narrow one, rather than being crushed in beside the rest.
  */
 const mobileNavItems = navItems.filter((item) => item.value !== "subscription" && item.value !== "feedback");
+
+function toggleSidebar() {
+  const root = document.documentElement;
+  const next = root.dataset.sidebar === "collapsed" ? "expanded" : "collapsed";
+  root.dataset.sidebar = next;
+  try {
+    window.localStorage.setItem("sidebar", next);
+  } catch {
+    // A blocked or full store only costs the preference on the next load.
+  }
+}
 
 export function FixedIncomeApp() {
   const auth = useFirebaseAuth();
@@ -205,6 +216,13 @@ export function FixedIncomeApp() {
     <div className="app-shell">
       <aside className="desktop-sidebar">
         <div className="sidebar-brand"><span className="brand-mark"><Landmark /></span><span><b>Portfolio</b><small>Investments &amp; cover</small></span></div>
+        {/*
+          Collapsing is held on the document rather than in React state: the
+          choice is read back before the first paint, so the sidebar does not
+          flash open on every load, and the arrow turns from CSS rather than
+          needing the component to re-render to know which way it points.
+        */}
+        <button className="sidebar-toggle" onClick={toggleSidebar} aria-label="Collapse or expand the sidebar"><ChevronLeft /></button>
         <nav aria-label="Primary navigation">
           {navItems.map(({ value, label, icon: Icon }) => (
             <button data-active={selected ? value === "investments" : screen === value} key={value} onClick={() => navigate(value)}><Icon /><span>{label}</span></button>
