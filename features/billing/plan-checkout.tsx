@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/firebase-client";
-import { planSavingPercent, type PlanCode } from "@/lib/plans";
+import { planSavingPercent, subscriptionPlans, type PlanCode } from "@/lib/plans";
 import type { Entitlement } from "@/lib/billing";
 
 export type Plan = {
@@ -48,14 +48,18 @@ export function usePlanCheckout({ displayName, email, phoneNumber, onActivated }
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ planCode }),
       });
-      const payload = await response.json() as { error?: string; keyId?: string; subscriptionId?: string; plan?: Plan };
-      if (!response.ok || !payload.keyId || !payload.subscriptionId) throw new Error(payload.error ?? "Checkout could not be started");
+      const payload = await response.json() as { error?: string; keyId?: string; subscriptionId?: string; orderId?: string; plan?: Plan };
+      const handle = payload.subscriptionId ?? payload.orderId;
+      if (!response.ok || !payload.keyId || !handle) throw new Error(payload.error ?? "Checkout could not be started");
 
       const checkout = new window.Razorpay!({
         key: payload.keyId,
-        subscription_id: payload.subscriptionId,
+        // A plan bought outright is an order, not a subscription. Razorpay
+        // takes one or the other, and naming the wrong one opens a sheet that
+        // charges the wrong thing.
+        ...(payload.orderId ? { order_id: payload.orderId } : { subscription_id: payload.subscriptionId }),
         name: "Portfolio",
-        description: `${payload.plan?.label ?? "Premium"} subscription`,
+        description: payload.orderId ? `${payload.plan?.label ?? "Premium"} — one payment` : `${payload.plan?.label ?? "Premium"} subscription`,
         prefill: { name: displayName, email: email ?? undefined, contact: phoneNumber ?? undefined },
         notes: { plan_code: planCode },
         theme: { color: "#0f766e" },
@@ -79,8 +83,13 @@ export function usePlanCheckout({ displayName, email, phoneNumber, onActivated }
   return { busyPlan, subscribe };
 }
 
+/** What one payment buys, for the line beside the price. */
 export function planPeriodLabel(code: PlanCode) {
-  return code === "monthly" ? "month" : code === "half-yearly" ? "6 months" : "year";
+  const plan = subscriptionPlans.find((entry) => entry.code === code);
+  if (!plan) return "year";
+  if (plan.monthsCovered === 1) return "month";
+  if (plan.monthsCovered === 12) return "year";
+  return `${plan.monthsCovered / 12} years`;
 }
 
 export function PlanGrid({ plans, entitlement, busyPlan, onChoose, currentPlan }: {

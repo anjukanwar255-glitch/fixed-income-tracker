@@ -111,11 +111,3 @@ env:
   #   value: "<Razorpay monthly plan id>"
   #   availability:
   #     - RUNTIME
-  # - variable: RAZORPAY_PLAN_HALF_YEARLY
-  #   value: "<Razorpay half-yearly plan id>"
-  #   availability:
-  #     - RUNTIME
-  # - variable: RAZORPAY_PLAN_YEARLY
-  #   value: "<Razorpay yearly plan id>"
-  #   availability:
-  #     - RUNTIME

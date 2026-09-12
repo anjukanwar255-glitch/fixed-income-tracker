@@ -283,7 +283,7 @@ export interface DocumentDoc extends Timestamps {
   version: number;
 }
 
-export type PlanCode = "monthly" | "half-yearly" | "yearly";
+export type { PlanCode } from "@/lib/plans";
 
 export interface SubscriptionDoc extends Timestamps {
   id: string;
@@ -295,7 +295,7 @@ export interface SubscriptionDoc extends Timestamps {
   provider: string;
   providerSubscriptionId?: string | null;
   providerCustomerId?: string | null;
-  planCode: PlanCode;
+  planCode: import("@/lib/plans").PlanCode;
   status: string;
   currentPeriodStart?: string | null;
   currentPeriodEnd?: string | null;

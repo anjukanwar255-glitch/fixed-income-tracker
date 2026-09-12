@@ -436,14 +436,12 @@ test("the Orange statement's own rows survive the document schedule intact", () 
 });
 
 test("a longer plan's saving is measured against paying monthly for the same span", () => {
-  const plans = [
-    { code: "monthly", amountPaise: 9_900, monthsCovered: 1 },
-    { code: "half-yearly", amountPaise: 54_900, monthsCovered: 6 },
-    { code: "yearly", amountPaise: 99_900, monthsCovered: 12 },
-  ];
+  // The plans as they actually are, so the test moves when they do.
+  const plans = billing.subscriptionPlans;
   assert.equal(billing.planSavingPercent(plans, "monthly"), 0);
-  assert.equal(billing.planSavingPercent(plans, "half-yearly"), 7);
   assert.equal(billing.planSavingPercent(plans, "yearly"), 15);
+  assert.equal(billing.planSavingPercent(plans, "five-year"), 32);
+  assert.equal(billing.planSavingPercent(plans, "ten-year"), 41);
 });
 
 test("no saving is claimed where a longer plan costs the same or more", () => {
@@ -452,7 +450,8 @@ test("no saving is claimed where a longer plan costs the same or more", () => {
     { code: "yearly", amountPaise: 200_000, monthsCovered: 12 },
   ];
   assert.equal(billing.planSavingPercent(plans, "yearly"), 0);
-  assert.equal(billing.planSavingPercent(plans, "half-yearly"), 0);
+  // A code that is not on sale claims nothing rather than throwing.
+  assert.equal(billing.planSavingPercent(plans, "five-year"), 0);
 });
 
 test("paise are shown when there are any, and dropped when there are none", () => {
@@ -714,4 +713,20 @@ test("the assessment year is the one after the financial year", () => {
   // And one the next day belongs to the year that has just begun.
   assert.equal(tax.assessmentYear(finance.calculateFinancialYear("2027-04-01")), "AY 2028-29");
   assert.equal(tax.assessmentYear("not a year"), null);
+});
+
+test("a plan bought outright runs for the years it was sold for", () => {
+  // The term starts when it is paid for, not when the order was opened.
+  assert.equal(billing.oneTimeAccessEnd("five-year", new Date("2026-09-13T00:00:00Z")), "2031-09-13T00:00:00.000Z");
+  assert.equal(billing.oneTimeAccessEnd("ten-year", new Date("2026-09-13T00:00:00Z")), "2036-09-13T00:00:00.000Z");
+  // A plan that renews has no such end; its period comes from the provider.
+  assert.equal(billing.oneTimeAccessEnd("monthly", new Date("2026-09-13T00:00:00Z")), null);
+  assert.equal(billing.oneTimeAccessEnd("yearly", new Date("2026-09-13T00:00:00Z")), null);
+});
+
+test("only the long plans are bought outright", () => {
+  assert.equal(billing.isOneTimePlan("monthly"), false);
+  assert.equal(billing.isOneTimePlan("yearly"), false);
+  assert.equal(billing.isOneTimePlan("five-year"), true);
+  assert.equal(billing.isOneTimePlan("ten-year"), true);
 });

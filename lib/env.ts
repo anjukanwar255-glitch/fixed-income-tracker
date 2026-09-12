@@ -20,7 +20,6 @@ export interface AppEnv {
   RAZORPAY_KEY_SECRET?: string;
   RAZORPAY_WEBHOOK_SECRET?: string;
   RAZORPAY_PLAN_MONTHLY?: string;
-  RAZORPAY_PLAN_HALF_YEARLY?: string;
   RAZORPAY_PLAN_YEARLY?: string;
   /** "true" turns on certificate scanning, which bills per document read. */
   /** Comma-separated Firebase uids that always hold the administrator role. */

@@ -19,6 +19,7 @@ import { maskPhoneNumber } from "@/hooks/use-firebase-auth";
 import { apiFetch, getFirebaseAuth } from "@/lib/firebase-client";
 import type { Entitlement } from "@/lib/billing";
 import { PlanGrid, type Plan, planPeriodLabel, usePlanCheckout } from "@/features/billing/plan-checkout";
+import { isOneTimePlan } from "@/lib/plans";
 import { PayoutConfirmDialog, type PayoutTarget } from "@/features/investments/payout-confirm-dialog";
 import { assessmentYear } from "@/core/tax/declarations";
 import { IssuerMark } from "@/components/issuer-mark";
@@ -187,6 +188,7 @@ export function SubscriptionScreen({ entitlement, plans, displayName, email, pho
   };
 
   const trialing = entitlement.state === "trial";
+  const boughtOutright = Boolean(entitlement.planCode && isOneTimePlan(entitlement.planCode));
   const current = plans.find((plan) => plan.code === entitlement.planCode) ?? null;
   const accessUntil = entitlement.currentPeriodEnd ?? entitlement.trialEndsAt ?? null;
 
@@ -208,11 +210,12 @@ export function SubscriptionScreen({ entitlement, plans, displayName, email, pho
         <div className="current-plan-facts">
           <span><small>Status</small><b>{trialing ? "Active trial" : entitlement.subscriptionStatus ?? "Inactive"}</b></span>
           <span><small>{trialing ? "Trial ends" : "Access through"}</small><b>{accessUntil ? formatDate(accessUntil) : "—"}</b></span>
-          <span><small>Renewal</small><b>{entitlement.cancelAtPeriodEnd ? "Cancelled" : entitlement.state === "subscribed" ? "Automatic" : "Not started"}</b></span>
+          <span><small>Renewal</small><b>{boughtOutright ? "One payment" : entitlement.cancelAtPeriodEnd ? "Cancelled" : entitlement.state === "subscribed" ? "Automatic" : "Not started"}</b></span>
         </div>
         {trialing && <p className="current-plan-note">{entitlement.daysRemaining} day{entitlement.daysRemaining === 1 ? "" : "s"} left. Choose a plan below to continue without interruption.</p>}
-        {entitlement.cancelAtPeriodEnd && <p className="current-plan-note">Renewal is off. Access continues to the date above, then stops.</p>}
-        {entitlement.state === "subscribed" && !entitlement.cancelAtPeriodEnd && (
+        {boughtOutright && <p className="current-plan-note">Paid in full. Nothing renews and nothing will be charged again; access runs to the date above.</p>}
+        {!boughtOutright && entitlement.cancelAtPeriodEnd && <p className="current-plan-note">Renewal is off. Access continues to the date above, then stops.</p>}
+        {entitlement.state === "subscribed" && !boughtOutright && !entitlement.cancelAtPeriodEnd && (
           <div className="settings-actions"><Button variant="outline" onClick={() => void cancelRenewal()}>Cancel renewal</Button></div>
         )}
       </section>

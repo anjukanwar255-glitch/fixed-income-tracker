@@ -1,11 +1,14 @@
 import { allSubscriptions, billingEventId, billingEvents, readDoc } from "@/db";
 import { razorpayConfig, unixToIso } from "@/lib/billing";
+import { oneTimeAccessEnd } from "@/lib/plans";
 
 const PROVIDER = "razorpay";
 /** gRPC ALREADY_EXISTS, thrown by `create()` when the document is present. */
 const ALREADY_EXISTS = 6;
 
 export const dynamic = "force-dynamic";
+
+type OrderEntity = { id?: string; status?: string; amount?: number };
 
 type SubscriptionEntity = {
   id: string;
@@ -34,9 +37,23 @@ export async function POST(request: Request) {
     return Response.json({ received: true, duplicate: true });
   }
 
-  let payload: { event?: string; payload?: { subscription?: { entity?: SubscriptionEntity } } };
+  let payload: {
+    event?: string;
+    payload?: {
+      subscription?: { entity?: SubscriptionEntity };
+      order?: { entity?: OrderEntity };
+      payment?: { entity?: { order_id?: string; status?: string } };
+    };
+  };
   try { payload = JSON.parse(raw) as typeof payload; } catch { return new Response("Invalid JSON", { status: 400 }); }
   const entity = payload.payload?.subscription?.entity;
+  /*
+   * A plan bought outright arrives as an order, not a subscription, and the
+   * paid event names the order on the payment rather than on the order itself.
+   * Both are the provider's handle on the same purchase, which is why they are
+   * looked up through the same field.
+   */
+  const orderId = payload.payload?.order?.entity?.id ?? payload.payload?.payment?.entity?.order_id ?? null;
   const digest = await sha256(raw);
   const now = new Date().toISOString();
 
@@ -56,15 +73,34 @@ export async function POST(request: Request) {
     })));
   }
 
+  if (!entity?.id && orderId) {
+    const matches = await allSubscriptions().where("providerSubscriptionId", "==", orderId).get();
+    await Promise.all(matches.docs.map((match) => {
+      const record = match.data();
+      const paid = payload.event === "order.paid" || payload.payload?.payment?.entity?.status === "captured";
+      if (!paid) return Promise.resolve();
+      // The term runs from when it was paid for, not from when the order was
+      // opened: someone who left the payment sheet and came back a week later
+      // should not lose that week.
+      const boughtAt = new Date(now);
+      return match.ref.update({
+        status: "active",
+        currentPeriodStart: now,
+        currentPeriodEnd: oneTimeAccessEnd(record.planCode, boughtAt) ?? record.currentPeriodEnd ?? null,
+        updatedAt: now,
+      });
+    }));
+  }
+
   try {
     await billingEvents().doc(recordId).create({
       id: recordId,
       provider: PROVIDER,
       providerEventId: eventId,
       eventType: payload.event ?? "unknown",
-      providerSubscriptionId: entity?.id ?? null,
+      providerSubscriptionId: entity?.id ?? orderId,
       payloadSha256: digest,
-      processingStatus: entity?.id ? "processed" : "ignored",
+      processingStatus: entity?.id || orderId ? "processed" : "ignored",
       processedAt: now,
       createdAt: now,
     });

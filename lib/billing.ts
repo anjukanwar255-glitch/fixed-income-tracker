@@ -98,7 +98,6 @@ export function isBillingConfigured() {
     env.RAZORPAY_KEY_ID &&
     env.RAZORPAY_KEY_SECRET &&
     env.RAZORPAY_PLAN_MONTHLY &&
-    env.RAZORPAY_PLAN_HALF_YEARLY &&
     env.RAZORPAY_PLAN_YEARLY &&
     env.RAZORPAY_WEBHOOK_SECRET
   );
@@ -112,9 +111,8 @@ export function razorpayConfig() {
     webhookSecret: env.RAZORPAY_WEBHOOK_SECRET!,
     planIds: {
       monthly: env.RAZORPAY_PLAN_MONTHLY!,
-      "half-yearly": env.RAZORPAY_PLAN_HALF_YEARLY!,
       yearly: env.RAZORPAY_PLAN_YEARLY!,
-    } satisfies Record<Code, string>,
+    } satisfies Record<"monthly" | "yearly", string>,
   };
 }
 
