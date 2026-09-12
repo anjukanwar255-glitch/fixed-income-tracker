@@ -52,7 +52,7 @@ export function SubscriptionGate({ entitlement, plans, displayName, email, phone
           <p>Your records remain private. Choose a plan to continue adding investments, checking payouts and downloading documents.</p>
         </div>
         <PlanGrid plans={plans} entitlement={entitlement} busyPlan={busyPlan} onChoose={(code) => void subscribe(code)} />
-        {!entitlement.billingConfigured && <p className="billing-setup-warning">Secure payments are being configured. No charge can be made until Razorpay live keys and plan IDs are connected.</p>}
+        {!entitlement.billingConfigured && <p className="billing-setup-warning">Payments are not switched on yet, so nothing here can be bought and nothing can be charged.</p>}
         <div className="subscription-trust"><ShieldCheck /><span>Payments are processed by Razorpay. Card, UPI and bank credentials are never stored by this app.</span></div>
         <div className="subscription-links"><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/support">Support</a><button onClick={() => void exportData()}>Export my data</button><button onClick={() => void deleteAccount()}>Delete account</button><button onClick={() => void onSignOut()}>Sign out</button></div>
       </section>

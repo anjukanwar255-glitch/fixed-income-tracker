@@ -239,7 +239,7 @@ export function SubscriptionScreen({ entitlement, plans, displayName, email, pho
         <div className="security-list">
           <span>Records <b>Kept for as long as the account exists</b></span>
           <span>Export <b>Available from Profile at any time</b></span>
-          <span>Payment details <b>Held by Razorpay, never stored here</b></span>
+          <span>Payment details <b>Held by the payment provider, never stored here</b></span>
         </div>
       </section>
     </div>
@@ -273,7 +273,7 @@ export function ProfileScreen({ profile, displayName, phoneNumber, onSignOut, on
       const response = await apiFetch("/api/backups", { method: verify ? "PUT" : "POST" });
       const result = await response.json() as { error?: string; createdAt?: string; backup?: { createdAt: string } };
       if (!response.ok) throw new Error(result.error ?? "Backup operation failed");
-      toast.success(verify ? "Latest Firebase backup downloaded and decrypted successfully" : "Encrypted Firebase backup created");
+      toast.success(verify ? "Latest backup downloaded and decrypted successfully" : "Encrypted backup created");
       setBackupStatus({ configured: true, latest: { createdAt: result.backup?.createdAt ?? result.createdAt ?? new Date().toISOString(), status: "completed" } });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Backup operation failed");
@@ -345,9 +345,9 @@ export function ProfileScreen({ profile, displayName, phoneNumber, onSignOut, on
           <Button variant="outline" onClick={() => onNavigate("feedback")}>Write to us</Button>
         </div>
       </section>
-      <section className="settings-card"><div className="section-heading"><div><h2>Data protection</h2><p>Your financial records use account-level ownership checks</p></div><ShieldCheck /></div><div className="security-list"><span>Encrypted connection <b>Active</b></span><span>Cloud database <b>Active</b></span><span>Document access <b>Private</b></span></div></section>
+      <section className="settings-card"><div className="section-heading"><div><h2>Data protection</h2><p>Your financial records use account-level ownership checks</p></div><ShieldCheck /></div><div className="security-list"><span>Encrypted connection <b>Active</b></span><span>Secure storage <b>Active</b></span><span>Document access <b>Private</b></span></div></section>
       <section className="settings-card app-install-card"><div className="section-heading"><div><h2>Use as an app</h2><p>Install it on your phone for a standalone, home-screen experience</p></div><Download /></div><InstallAppButton /></section>
-      <section className="settings-card"><div className="section-heading"><div><h2>Backup &amp; recovery</h2><p>Encrypted portfolio snapshots are stored separately in Firebase Storage</p></div><DatabaseBackup /></div><div className="security-list"><span>Firebase backup <b>{backupStatus?.configured ? "Configured" : "Setup required"}</b></span><span>Latest snapshot <b>{backupStatus?.latest ? formatDateTime(backupStatus.latest.createdAt) : "Not created"}</b></span></div><div className="settings-actions"><Button variant="outline" disabled={backupBusy || !backupStatus?.configured} onClick={() => void runBackup()}><DatabaseBackup /> Back up now</Button><Button variant="outline" disabled={backupBusy || !backupStatus?.latest} onClick={() => void runBackup(true)}><ShieldCheck /> Test recovery</Button></div></section>
+      <section className="settings-card"><div className="section-heading"><div><h2>Backup &amp; recovery</h2><p>Encrypted copies of your records, kept apart from the app</p></div><DatabaseBackup /></div><div className="security-list"><span>Backups <b>{backupStatus?.configured ? "On" : "Not set up yet"}</b></span><span>Latest snapshot <b>{backupStatus?.latest ? formatDateTime(backupStatus.latest.createdAt) : "Not created"}</b></span></div><div className="settings-actions"><Button variant="outline" disabled={backupBusy || !backupStatus?.configured} onClick={() => void runBackup()}><DatabaseBackup /> Back up now</Button><Button variant="outline" disabled={backupBusy || !backupStatus?.latest} onClick={() => void runBackup(true)}><ShieldCheck /> Test recovery</Button></div></section>
       <section className="settings-card"><div className="section-heading"><div><h2>Your data</h2><p>Download a portable copy or permanently delete the account</p></div><Download /></div><div className="settings-actions"><Button variant="outline" onClick={() => void exportAccount("csv")}><Download /> Portfolio CSV</Button><Button variant="outline" onClick={() => void exportAccount("json")}><Download /> Full JSON</Button><Button variant="destructive" onClick={() => void deleteAccount()}><Trash2 /> Delete account</Button></div><div className="legal-links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/support">Support</a></div></section>
       <Button variant="outline" disabled={signingOut} onClick={() => { setSigningOut(true); void onSignOut().finally(() => setSigningOut(false)); }}>
         <LogOut /> {signingOut ? "Signing out…" : "Sign out"}

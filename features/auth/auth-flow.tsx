@@ -36,13 +36,13 @@ const errorMessages: Record<string, string> = {
   "auth/invalid-phone-number": "That mobile number doesn't look right. Check and try again.",
   "auth/missing-phone-number": "Enter your 10-digit mobile number.",
   "auth/quota-exceeded": "Too many codes requested right now. Try again shortly.",
-  "auth/too-many-requests": "Too many attempts from this device. Firebase has paused sign-in for a short while — the button below unlocks when you can try again.",
+  "auth/too-many-requests": "Too many attempts from this device. Sign-in is paused for a short while — the button below unlocks when you can try again.",
   "auth/invalid-verification-code": "That code is incorrect. Check the SMS and try again.",
   "auth/code-expired": "That code has expired. Request a new one.",
   "auth/network-request-failed": "Network problem. Check your connection and try again.",
   // Raised when this origin is missing from Firebase's authorized domains, which
   // is also how a misconfigured reCAPTCHA usually surfaces.
-  "auth/unauthorized-domain": "This site isn't authorised for sign-in yet. Add its domain under Firebase Authentication → Settings → Authorized domains.",
+  "auth/unauthorized-domain": "Sign-in is not available from this address yet. Please use the main app address, or write to us if this is the only one you have.",
   // The reCAPTCHA answer was rejected or had already been spent. The tick box
   // resets itself alongside this message so the next attempt starts clean.
   "auth/invalid-app-credential": "The security check didn't go through. Tick the box again, then request the code.",
@@ -50,8 +50,8 @@ const errorMessages: Record<string, string> = {
   // Firebase reuses this code for two very different causes: the phone provider
   // being off, and the SMS region policy excluding the number's country.
   "auth/operation-not-allowed": "Phone sign-in is unavailable. Check that the Phone provider is enabled and that the SMS region policy allows India (+91).",
-  "auth/billing-not-enabled": "Phone sign-in needs billing enabled on the Firebase project.",
-  "auth/internal-error": "Firebase rejected the request. Check that this origin is an authorized domain.",
+  "auth/billing-not-enabled": "Sign-in by mobile is temporarily unavailable. Please try again shortly.",
+  "auth/internal-error": "The sign-in request was refused. Reload the page and try once more.",
 };
 
 function errorCode(error: unknown): string {
@@ -215,7 +215,7 @@ export function AuthFlow() {
     } catch (signInError) {
       const code = errorCode(signInError);
       setError(code === "auth/operation-not-allowed"
-        ? "Google sign-in is not enabled for this Firebase project yet. Use mobile OTP or enable the Google provider."
+        ? "Google sign-in is not available yet. Please use your mobile number."
         : code === "auth/popup-closed-by-user"
           ? "Google sign-in was closed before completion."
           : describeError(signInError));

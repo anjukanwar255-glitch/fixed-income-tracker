@@ -67,7 +67,7 @@ export function usePlanCheckout({ displayName, email, phoneNumber, onActivated }
         handler: async () => {
           toast.success("Payment authorised. Confirming your subscription…");
           const sync = await apiFetch("/api/billing/sync", { method: "POST" });
-          if (!sync.ok) toast.warning("Payment is safe; activation will finish from the Razorpay webhook.");
+          if (!sync.ok) toast.warning("Your payment went through. Activation will finish on its own in a moment.");
           await onActivated();
           setBusyPlan(null);
         },
@@ -132,7 +132,7 @@ export function PlanGrid({ plans, entitlement, busyPlan, onChoose, currentPlan }
             <h2>{plan.label}</h2>
             <p className="pricing-amount"><strong>₹{plan.amountPaise / 100}</strong><span>/{planPeriodLabel(plan.code)}</span></p>
             <p className="pricing-permonth">{perMonth === null ? "Billed every month" : `₹${perMonth.toFixed(2)} per month`}</p>
-            <ul><li><Check /> Unlimited investments</li><li><Check /> Encrypted Firebase backups</li><li><Check /> Payout and TDS tracking</li></ul>
+            <ul><li><Check /> Unlimited investments</li><li><Check /> Encrypted backups</li><li><Check /> Payout and TDS tracking</li></ul>
             <Button
               className="w-full"
               variant={active ? "outline" : "default"}

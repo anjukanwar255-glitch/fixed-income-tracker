@@ -104,7 +104,7 @@ export function AccountSetup({ phoneNumber, onComplete }: Props) {
   };
 
   const restoreBackup = async () => {
-    if (!window.confirm("Restore the latest encrypted Firebase snapshot for this account? Existing newer records will never be overwritten.")) return;
+    if (!window.confirm("Restore the latest encrypted backup for this account? Anything newer already here will be left alone.")) return;
     setSaving(true);
     setError(null);
     try {
