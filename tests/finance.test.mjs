@@ -14,6 +14,8 @@ const contributions = await vite.ssrLoadModule("/core/finance/contributions.ts")
 const scan = await vite.ssrLoadModule("/core/finance/scan-mapping.ts");
 const billing = await vite.ssrLoadModule("/lib/plans.ts");
 const closure = await vite.ssrLoadModule("/core/finance/closure.ts");
+const cashflow = await vite.ssrLoadModule("/core/finance/cashflow.ts");
+const mark = await vite.ssrLoadModule("/core/data/issuer-mark.ts");
 
 test("uses exact date accrual for a complete non-leap year", () => {
   assert.equal(finance.calculateInterestForDates(10_000_000n, 750, "2025-01-01", "2026-01-01", "actual-365"), 750_000n);
@@ -566,4 +568,105 @@ test("maturity is the date arriving, not a button being pressed", () => {
   assert.equal(closure.hasMatured({ maturityDate: "2026-08-25", status: "closed" }, "2026-09-10"), false);
   // Something open-ended never matures.
   assert.equal(closure.hasMatured({ status: "active" }, "2026-09-10"), false);
+});
+
+test("a known rate is recovered from its own cash flows", () => {
+  // ₹1,00,000 out, ₹1,10,000 back exactly a year later, is 10%.
+  const rate = cashflow.annualisedReturn([
+    { date: "2026-04-01", amountPaise: -10_000_000n },
+    { date: "2027-04-01", amountPaise: 11_000_000n },
+  ]);
+  assert.ok(Math.abs(rate - 0.10) < 0.001, `expected ~0.10, got ${rate}`);
+});
+
+test("money coming back sooner is worth a higher rate", () => {
+  const late = cashflow.annualisedReturn([
+    { date: "2026-04-01", amountPaise: -10_000_000n },
+    { date: "2027-04-01", amountPaise: 11_000_000n },
+  ]);
+  const early = cashflow.annualisedReturn([
+    { date: "2026-04-01", amountPaise: -10_000_000n },
+    { date: "2026-10-01", amountPaise: 11_000_000n },
+  ]);
+  assert.ok(early > late, `${early} should beat ${late}`);
+});
+
+test("a monthly coupon bond returns about its coupon", () => {
+  const flows = [{ date: "2026-04-01", amountPaise: -10_000_000n }];
+  for (let month = 1; month <= 12; month += 1) {
+    const date = `2026-${String(4 + month).padStart(2, "0")}-01`;
+    flows.push({
+      date: month === 12 ? "2027-04-01" : date.replace(/^2026-(1[3-9]|2[0-9])/, (_, m) => `2027-${String(Number(m) - 12).padStart(2, "0")}`),
+      amountPaise: month === 12 ? 10_000_000n + 83_333n : 83_333n,
+    });
+  }
+  const rate = cashflow.annualisedReturn(flows);
+  // Paid monthly rather than at the end, so slightly above the 10% coupon.
+  assert.ok(rate > 0.10 && rate < 0.11, `expected 10-11%, got ${rate}`);
+});
+
+test("no rate is claimed where the flows cannot support one", () => {
+  assert.equal(cashflow.annualisedReturn([]), null);
+  assert.equal(cashflow.annualisedReturn([{ date: "2026-04-01", amountPaise: -100n }]), null);
+  // Nothing ever comes back: a loss with no rate, not a rate of -100%.
+  assert.equal(cashflow.annualisedReturn([
+    { date: "2026-04-01", amountPaise: -100n },
+    { date: "2027-04-01", amountPaise: -100n },
+  ]), null);
+});
+
+test("cash flows land in the months they fall due", () => {
+  const investment = {
+    status: "active",
+    investmentDate: "2026-09-04",
+    principalPaise: 9_776_028n,
+    schedule: [
+      { dueDate: "2026-10-01", expectedNetPaise: 116_580n, receivedAmountPaise: undefined },
+      { dueDate: "2026-10-20", expectedNetPaise: 100_000n, receivedAmountPaise: undefined },
+      { dueDate: "2026-12-01", expectedNetPaise: 94_520n, receivedAmountPaise: 90_000n },
+    ],
+  };
+  const months = cashflow.monthlyCashflow([investment], "2026-09-01", 4);
+  assert.deepEqual(months.map((m) => m.month), ["2026-09-01", "2026-10-01", "2026-11-01", "2026-12-01"]);
+  assert.equal(months[0].count, 0);
+  // Two payouts in October, added together.
+  assert.equal(months[1].count, 2);
+  assert.equal(months[1].expectedPaise, 216_580n);
+  // A month with nothing still appears, so the shape of the year is honest.
+  assert.equal(months[2].expectedPaise, 0n);
+  assert.equal(months[3].receivedPaise, 90_000n);
+});
+
+test("a closed holding is left out of the portfolio's rate", () => {
+  const flows = cashflow.portfolioFlows([
+    { status: "closed", investmentDate: "2026-04-01", principalPaise: 500n, schedule: [] },
+    { status: "active", investmentDate: "2026-04-01", principalPaise: 100n, schedule: [{ dueDate: "2027-04-01", expectedNetPaise: 110n }] },
+  ]);
+  assert.deepEqual(flows, [
+    { date: "2026-04-01", amountPaise: -100n },
+    { date: "2027-04-01", amountPaise: 110n },
+  ]);
+});
+
+test("an issuer's initials skip what it is registered as", () => {
+  assert.equal(mark.issuerInitials("ORANGE RETAIL FINANCE INDIA PRIVATE LIMITED"), "OR");
+  assert.equal(mark.issuerInitials("MUTHOOT FINANCE LIMITED"), "MF");
+  assert.equal(mark.issuerInitials("Mangal Credit and Fincorp Limited"), "MC");
+  assert.equal(mark.issuerInitials("State Bank of India"), "SB");
+  assert.equal(mark.issuerInitials("Keertana Finserv"), "KF");
+});
+
+test("a one-word or unusable name still gets a mark", () => {
+  assert.equal(mark.issuerInitials("Grip"), "GR");
+  assert.equal(mark.issuerInitials("Limited"), "?");
+  assert.equal(mark.issuerMark("   ").initials, "?");
+});
+
+test("an issuer keeps the same colour everywhere it is shown", () => {
+  const name = "MUTHOOT FINANCE LIMITED";
+  assert.equal(mark.issuerColour(name), mark.issuerColour(name));
+  assert.notEqual(mark.issuerColour("A"), undefined);
+  // Different issuers are not forced apart, but they do spread across the set.
+  const spread = new Set(["Muthoot", "Orange", "Mangal", "Keertana", "UGRO"].map(mark.issuerColour));
+  assert.ok(spread.size > 1);
 });

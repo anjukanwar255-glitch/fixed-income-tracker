@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { CalendarDays, ChevronRight, Landmark, Search, SlidersHorizontal } from "lucide-react";
 
+import { IssuerMark } from "@/components/issuer-mark";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,7 +82,7 @@ export function InvestmentListScreen({ investments, onOpenInvestment, onAddInves
             const nextPayout = investment.schedule.find((payout) => payout.dueDate >= today && payout.status !== "received");
             return (
               <button className="investment-card" key={investment.id} onClick={() => onOpenInvestment(investment.id)}>
-                <span className="investment-logo"><Landmark aria-hidden="true" /></span>
+                <IssuerMark name={investment.issuer || investment.name} website={investment.issuerWebsite} size="lg" />
                 <span className="investment-main">
                   <span className="investment-title-row">
                     <span><b>{investment.issuer}</b><small>{typeLabels[investment.type]} · {investment.name}</small></span>

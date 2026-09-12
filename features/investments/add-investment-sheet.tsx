@@ -136,6 +136,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   const [type, setType] = useState<InvestmentType>(initialInvestment?.type ?? "fixed-deposit");
   const [name, setName] = useState(initialInvestment?.name ?? "");
   const [issuer, setIssuer] = useState(initialInvestment?.issuer ?? "");
+  const [issuerWebsite, setIssuerWebsite] = useState(initialInvestment?.issuerWebsite ?? "");
   const [number, setNumber] = useState(initialInvestment?.investmentNumber ?? "");
   const [investmentDate, setInvestmentDate] = useState(() => initialInvestment?.investmentDate ?? new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = useState(() => initialInvestment ? paiseToInput(initialInvestment.principalPaise) : "");
@@ -245,6 +246,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
 
       applyText(found.investmentName, setName);
       applyText(found.issuerName, setIssuer);
+      applyText(found.issuerWebsite, setIssuerWebsite);
       applyText(found.investmentNumber, setNumber);
       applyText(found.brokerName, setBroker);
       applyText(found.dpId, setDpId);
@@ -502,7 +504,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
     };
     setSaving(true);
     try {
-      const result = await syncInvestment(investment, { bankName: resolvedBankName, ifscCode: ifsc, accountNumber, paymentMode, nominee, broker, dpId, clientId, orderReference, advisor, advisorMobile, notes }, scannedSchedule, { panLinked, declarationApplicable }, attachments);
+      const result = await syncInvestment(investment, { bankName: resolvedBankName, issuerWebsite, ifscCode: ifsc, accountNumber, paymentMode, nominee, broker, dpId, clientId, orderReference, advisor, advisorMobile, notes }, scannedSchedule, { panLinked, declarationApplicable }, attachments);
       if (result.warning) toast.warning(result.warning);
       await onSave(result.investmentId);
       onOpenChange(false);
@@ -516,7 +518,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
   };
 
   const resetForm = () => {
-    setStep(1); setType("fixed-deposit"); setName(""); setIssuer(""); setNumber("");
+    setStep(1); setType("fixed-deposit"); setName(""); setIssuer(""); setIssuerWebsite(""); setNumber("");
     setInvestmentDate(new Date().toISOString().slice(0, 10)); setAmount(""); setRate("");
     setMaturityDate(""); setMaturityAmount(""); setInterestType("simple"); setCompoundingFrequency("quarterly"); setDayCountBasis("actual-365"); setFrequency("quarterly");
     setFirstPayoutDate(""); setTdsApplicable(false); setTdsRate(""); setPanLinked(false);
@@ -612,6 +614,11 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                 <datalist id={ISSUER_SUGGESTIONS_ID}>
                   {indianBankGroups.flatMap((group) => group.banks).map((bank) => <option value={bank} key={bank} />)}
                 </datalist>
+                <div className="form-field">
+                  <Label htmlFor="field-issuer-site">Issuer website <span className="field-optional">optional</span></Label>
+                  <Input id="field-issuer-site" value={issuerWebsite} onChange={(event) => setIssuerWebsite(event.target.value.trim().toLowerCase())} placeholder="e.g. muthootfinance.com" autoComplete="off" spellCheck={false} />
+                  <p className="field-note">Used to show the issuer&apos;s logo. Read from the documents when they print one; left blank, the issuer&apos;s initials are shown instead.</p>
+                </div>
                 <Field label="FD / folio / bond number" value={number} setValue={setNumber} placeholder="Certificate number" />
                 <Field label="Investment date" value={investmentDate} setValue={setInvestmentDate} type="date" />
                 <Field label="Amount paid (₹)" value={amount} setValue={setAmount} inputMode="decimal" placeholder="10,00,000" />
@@ -974,6 +981,7 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
         panLinked: flags.panLinked,
         declarationApplicable: flags.declarationApplicable,
         bankName: extra.bankName,
+        issuerWebsite: extra.issuerWebsite,
         ifscCode: extra.ifscCode,
         accountNumber: extra.accountNumber,
         // Sent only when the documents supplied one; otherwise the server

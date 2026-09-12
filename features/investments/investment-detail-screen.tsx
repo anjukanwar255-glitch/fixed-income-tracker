@@ -11,7 +11,6 @@ import {
   Download,
   FileText,
   History,
-  Landmark,
   Pencil,
   ShieldCheck,
   Upload,
@@ -34,6 +33,7 @@ import { contributionTotals } from "@/core/finance/contributions";
 import { earnsInterest, holdsUnits, providesCover } from "@/core/data/investment-types";
 import { closurePosition, hasMatured } from "@/core/finance/closure";
 import { PayoutConfirmDialog, type PayoutTarget } from "@/features/investments/payout-confirm-dialog";
+import { IssuerMark } from "@/components/issuer-mark";
 import { apiFetch, downloadDocument, uploadDocumentFile } from "@/lib/firebase-client";
 import type { PayoutProjection, PortfolioInvestment } from "@/core/models/financial";
 
@@ -344,7 +344,7 @@ export function InvestmentDetailScreen({ investment, onBack, onDataChanged, onEd
     <div className="screen detail-screen">
       <button className="back-button" onClick={onBack}><ArrowLeft aria-hidden="true" /> Investments</button>
       <section className="detail-hero">
-        <div className="detail-icon"><Landmark aria-hidden="true" /></div>
+        <IssuerMark name={investment.issuer || investment.name} website={investment.issuerWebsite} size="lg" />
         <div className="detail-title">
           <span>{labelType(investment.type)}</span><h1>{investment.issuer}</h1>
           <p>{investment.name}{investment.investmentNumber ? ` · •••• ${investment.investmentNumber.slice(-4)}` : ""}</p>

@@ -55,6 +55,7 @@ const updateInput = z.object({
   panLinked: z.boolean().default(false),
   declarationApplicable: z.boolean().default(false),
   bankName: z.string().trim().max(100).regex(/^[^\d]*$/, "Bank name cannot contain numbers").optional(),
+  issuerWebsite: z.string().trim().max(200).optional(),
   ifscCode: z.string().trim().toUpperCase().regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, "Enter a valid IFSC code").optional().or(z.literal("")),
   accountNumber: z.string().trim().regex(/^\d{9,18}$/, "Enter the full account number").optional().or(z.literal("")),
   /**
@@ -166,7 +167,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       firstPayoutDate: input.firstPayoutDate ?? "",
       maturityDate: input.maturityDate ?? "", expectedMaturityPaise: input.expectedMaturityPaise ?? null, tdsApplicable: input.tdsApplicable,
       expectedTdsRateBps: input.expectedTdsRateBps, panLinked: input.panLinked, declarationApplicable: input.declarationApplicable,
-      bankName: input.bankName ?? null, ifscCode: input.ifscCode || null, accountNumber: input.accountNumber || null, paymentMode: input.paymentMode ?? null, nominee: input.nominee ?? null,
+      bankName: input.bankName ?? null, issuerWebsite: input.issuerWebsite || null, ifscCode: input.ifscCode || null, accountNumber: input.accountNumber || null, paymentMode: input.paymentMode ?? null, nominee: input.nominee ?? null,
       brokerPlatform: input.brokerPlatform ?? null, dpId: input.dpId ?? null, clientId: input.clientId ?? null,
       orderReference: input.orderReference ?? null, advisorName: input.advisorName ?? null, advisorMobile: input.advisorMobile || null, notes: input.notes ?? null,
       financialYear: calculateFinancialYear(input.investmentDate), revision: nextRevision, updatedAt: now,

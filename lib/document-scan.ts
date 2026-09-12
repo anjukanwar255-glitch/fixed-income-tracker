@@ -27,6 +27,7 @@ const DEFAULT_MODEL = "gemini-2.5-flash";
 export type ScannedInvestment = {
   investmentName?: string;
   issuerName?: string;
+  issuerWebsite?: string;
   investmentNumber?: string;
   brokerName?: string;
   dpId?: string;
@@ -58,6 +59,7 @@ const responseSchema = {
   properties: {
     investmentName: { type: Type.STRING, description: "Product name as printed, e.g. 'Muthoot Fincorp May 2029'." },
     issuerName: { type: Type.STRING, description: "The bank or company that issued it, not the broker or platform." },
+    issuerWebsite: { type: Type.STRING, description: "The issuer's own website, as printed — just the domain, e.g. 'muthootfinance.com'. Only the company that issued the security, never the broker's or the platform's. Omit it if the documents do not print one." },
     investmentNumber: { type: Type.STRING, description: "ISIN, FD receipt number, folio or certificate number." },
     investmentDate: { type: Type.STRING, description: "Purchase or deposit date as YYYY-MM-DD." },
     settlementDate: { type: Type.STRING, description: "Date the trade settled and the securities were delivered, as YYYY-MM-DD. Labelled 'Settlement Date'; usually a day or two after the order date. Accrued interest is calculated up to this date, not to the order date." },
@@ -203,6 +205,12 @@ function sanitise(raw: Record<string, unknown>): ScannedInvestment {
 
   result.investmentName = text(raw.investmentName, 120);
   result.issuerName = text(raw.issuerName, 120);
+  // Kept only if it is shaped like a hostname; anything else would be handed
+  // straight to a fetch.
+  const site = typeof raw.issuerWebsite === "string"
+    ? raw.issuerWebsite.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0]
+    : "";
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(site) && site.length <= 253) result.issuerWebsite = site;
   result.investmentNumber = text(raw.investmentNumber, 80);
   result.brokerName = text(raw.brokerName, 100);
   result.dpId = text(raw.dpId, 40);

@@ -86,6 +86,7 @@ export interface InvestmentDoc extends Timestamps {
   declarationApplicable: boolean;
   bankName?: string | null;
   /** Full receiving account number. Masked wherever it is shown. */
+  issuerWebsite?: string | null;
   ifscCode?: string | null;
   accountNumber?: string | null;
   paymentMode?: string | null;

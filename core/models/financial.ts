@@ -197,6 +197,13 @@ export interface PortfolioInvestment extends InvestmentDraft, UnitHolding, Contr
   activity: InvestmentActivity[];
   panLinked?: boolean;
   declarationApplicable?: boolean;
+  /**
+   * The issuer's own website, taken from its paperwork or entered by hand —
+   * never guessed from the name. A guessed domain fetches whichever company
+   * happens to own it, and the wrong company's logo on a holding is worse
+   * than no logo at all.
+   */
+  issuerWebsite?: string;
   bankName?: string;
   /** IFSC of the receiving branch. Identifies bank and branch in one code. */
   ifscCode?: string;

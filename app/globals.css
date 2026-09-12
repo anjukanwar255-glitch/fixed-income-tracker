@@ -351,6 +351,13 @@ html[data-sidebar="collapsed"] .sidebar-toggle svg { transform:rotate(180deg); }
 /* 2. A row that has to narrow wraps its figures onto a second line instead of
    dropping them. They are the only reason the row exists, and hiding them left
    a date beside a badge saying nothing about the money. */
+/* The issuer's mark: its logo, or its initials on a colour of its own. */
+.issuer-mark { align-items:center; border-radius:11px; color:#fff; display:inline-flex; flex:0 0 auto; font-size:.74rem; font-weight:800; justify-content:center; letter-spacing:.02em; overflow:hidden; height:38px; width:38px; }
+.issuer-mark-sm { border-radius:9px; font-size:.66rem; height:30px; width:30px; }
+.issuer-mark-lg { border-radius:13px; font-size:.95rem; height:48px; width:48px; }
+.issuer-mark[data-logo] { background:#fff; border:1px solid #e2e9f0; }
+.issuer-mark img { height:100%; object-fit:contain; padding:5px; width:100%; }
+.detail-hero .issuer-mark { border-color:#ffffff2e; }
 .payout-figure { min-width:0; }
 @media (max-width:1180px) {
   .detail-payout-row { align-items:start; display:grid; gap:10px 14px; grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto; }

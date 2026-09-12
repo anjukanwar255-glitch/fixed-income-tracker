@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarClock, CheckCircle2, DatabaseBackup, Download, Eye, EyeOff, Landmark, LogOut, Pencil, ReceiptIndianRupee, ShieldCheck, Trash2, UserRound } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, DatabaseBackup, Download, Eye, EyeOff, LogOut, Pencil, ReceiptIndianRupee, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { deleteUser } from "firebase/auth";
 import { toast } from "sonner";
 
@@ -20,6 +20,7 @@ import { apiFetch, getFirebaseAuth } from "@/lib/firebase-client";
 import type { Entitlement } from "@/lib/billing";
 import { PlanGrid, type Plan, planPeriodLabel, usePlanCheckout } from "@/features/billing/plan-checkout";
 import { PayoutConfirmDialog, type PayoutTarget } from "@/features/investments/payout-confirm-dialog";
+import { IssuerMark } from "@/components/issuer-mark";
 
 type PayoutFilter = "upcoming" | "due" | "received" | "not-received" | "all";
 
@@ -89,7 +90,7 @@ export function PayoutsScreen({ investments, financialYear, onDataChanged }: { i
           const settled = payout.status === "received" || payout.status === "partial-received";
           return (
           <div className="simple-row" key={`${investment.id}-${payout.id}`}>
-            <span className="row-icon"><Landmark /></span>
+            <IssuerMark name={investment.issuer || investment.name} website={investment.issuerWebsite} />
             <span className="row-copy"><b>{investment.name}</b><small>{investment.issuer} · {formatDate(payout.dueDate)}</small></span>
             <span className="row-value"><b>{formatMoney(payout.receivedAmountPaise ?? payout.expectedNetPaise)}</b><small>{payout.receivedAmountPaise === undefined ? "Expected net" : "Bank confirmed"}</small></span>
             {settled
