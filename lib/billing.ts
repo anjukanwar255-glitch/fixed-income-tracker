@@ -23,7 +23,7 @@ export async function getEntitlement(ownerId: string): Promise<Entitlement> {
   const stored = await readDoc(userDoc(ownerId));
   const profile = stored && !stored.deletedAt ? stored : null;
   if (!profile) {
-    return { entitled: true, state: "onboarding", trialEndsAt: null, daysRemaining: 7, planCode: null, subscriptionStatus: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, billingConfigured: isBillingConfigured() };
+    return { entitled: true, state: "onboarding", trialEndsAt: null, daysRemaining: 0, planCode: null, subscriptionStatus: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, billingConfigured: isBillingConfigured() };
   }
 
   const active = await firstDoc(subscriptions(ownerId)
@@ -63,7 +63,7 @@ export async function getEntitlement(ownerId: string): Promise<Entitlement> {
 export async function requireEntitlement(ownerId: string) {
   const entitlement = await getEntitlement(ownerId);
   return entitlement.entitled ? null : Response.json({
-    error: "Your 7-day free trial has ended. Choose a plan to continue.",
+    error: "Your free trial has ended. Choose a plan to continue.",
     code: "SUBSCRIPTION_REQUIRED",
     entitlement,
   }, { status: 402 });
