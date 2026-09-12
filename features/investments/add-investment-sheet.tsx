@@ -367,8 +367,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
         documentType: role === "schedule" ? "repayment-schedule" : certificateType(type),
       })));
 
-      const gaps = stillMissing().map(({ label }) => label);
-      setScanGaps(gaps);
+      setScanGaps(stillMissing().map(({ key }) => key));
       toast.success(filled
         ? `Read ${filled} field${filled === 1 ? "" : "s"} — check each against the documents`
         : "Nothing could be read from those documents");
@@ -615,7 +614,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
               </p>
               {scanGaps.length > 0 && !scanning && (
                 <div className="mismatch-note">
-                  <AlertTriangle /> The documents did not give: {scanGaps.join(", ")}. Enter {scanGaps.length === 1 ? "it" : "them"} by hand, or attach a clearer copy.
+                  <AlertTriangle /> The documents did not give: {scanGaps.map((key) => ESSENTIAL_SCAN_FIELDS.find((field) => field.key === key)?.label ?? key).join(", ")}. {scanGaps.length === 1 ? "It is" : "They are"} marked on the steps ahead.
                 </div>
               )}
               <RadioGroup value={type} onValueChange={(value) => setType(value as InvestmentType)}>
@@ -650,7 +649,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                   value is snapshotted onto every investment and shown in
                   reports.
                 */}
-                <Field label="Issuer / bank / company" value={issuer} setValue={setIssuer} placeholder="Name shown on the certificate" list={ISSUER_SUGGESTIONS_ID} />
+                <Field label="Issuer / bank / company" value={issuer} setValue={setIssuer} placeholder="Name shown on the certificate" list={ISSUER_SUGGESTIONS_ID} needsManual={scanGaps.includes("issuerName")} />
                 <datalist id={ISSUER_SUGGESTIONS_ID}>
                   {indianBankGroups.flatMap((group) => group.banks).map((bank) => <option value={bank} key={bank} />)}
                 </datalist>
@@ -661,7 +660,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                 </div>
                 <Field label="FD / folio / bond number" value={number} setValue={setNumber} placeholder="Certificate number" />
                 <Field label="Investment date" value={investmentDate} setValue={setInvestmentDate} type="date" />
-                <Field label="Amount paid (₹)" value={amount} setValue={setAmount} inputMode="decimal" placeholder="10,00,000" />
+                <Field label="Amount paid (₹)" value={amount} setValue={setAmount} inputMode="decimal" placeholder="10,00,000" needsManual={scanGaps.includes("amountPaidRupees")} />
                 <div className="form-field">
                   <Label htmlFor="field-face-value">Face value (₹) <span className="field-optional">only if different</span></Label>
                   <Input id="field-face-value" value={faceValue} onChange={(event) => setFaceValue(event.target.value)} inputMode="decimal" placeholder="Same as amount paid" />
@@ -743,7 +742,7 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
               <FormHeading title="Interest schedule" description="We will generate an editable expected payout schedule." />
               <div className="field-grid">
                 <div className="form-field"><Label>Interest type</Label><Select value={interestType} onValueChange={(value) => { const nextType = value as InterestType; setInterestType(nextType); if (nextType !== "simple") setFrequency("on-maturity"); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="simple">Simple</SelectItem><SelectItem value="compound">Compound</SelectItem><SelectItem value="cumulative">Cumulative</SelectItem></SelectContent></Select></div>
-                <Field label="Annual interest rate (%)" value={rate} setValue={setRate} inputMode="decimal" placeholder="9.00" />
+                <Field label="Annual interest rate (%)" value={rate} setValue={setRate} inputMode="decimal" placeholder="9.00" needsManual={scanGaps.includes("interestRatePercent")} />
                 <div className="form-field"><Label>Payout frequency</Label><Select value={frequency} disabled={interestType !== "simple"} onValueChange={(value) => setFrequency(value as PayoutFrequency)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{payoutOptions.map((option) => <SelectItem value={option.value} key={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>{interestType !== "simple" && <p className="field-note">Compound/cumulative interest is credited on maturity.</p>}</div>
                 {interestType !== "simple" && <div className="form-field"><Label>Compounding frequency</Label><Select value={compoundingFrequency} onValueChange={(value) => setCompoundingFrequency(value as CompoundingFrequency)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="monthly">Monthly</SelectItem><SelectItem value="quarterly">Quarterly</SelectItem><SelectItem value="half-yearly">Half-yearly</SelectItem><SelectItem value="yearly">Yearly</SelectItem></SelectContent></Select></div>}
                 <div className="form-field"><Label>Interest day-count basis</Label><Select value={dayCountBasis} onValueChange={(value) => setDayCountBasis(value as DayCountBasis)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="actual-365">Actual / 365</SelectItem><SelectItem value="actual-actual">Actual / Actual</SelectItem><SelectItem value="30-360">30 / 360</SelectItem></SelectContent></Select><p className="field-note">Use the basis printed in the issuer&apos;s terms.</p></div>
@@ -752,8 +751,8 @@ export function AddInvestmentSheet({ open, onOpenChange, onSave, initialInvestme
                   <Input id="field-interest-start" type="date" value={interestStartDate} onChange={(event) => setInterestStartDate(event.target.value)} max={maturityDate || undefined} />
                   <p className="field-note">Buying a bond part-way through a coupon period means paying the seller the interest earned so far, then collecting the whole coupon. Set the previous coupon date here. Leave blank for a deposit.</p>
                 </div>
-                {frequency !== "on-maturity" && <Field label="First payout date" value={firstPayoutDate} setValue={setFirstPayoutDate} type="date" min={interestStartDate || investmentDate} max={maturityDate || undefined} />}
-                <Field label="Maturity date" value={maturityDate} setValue={setMaturityDate} type="date" />
+                {frequency !== "on-maturity" && <Field label="First payout date" value={firstPayoutDate} setValue={setFirstPayoutDate} type="date" min={interestStartDate || investmentDate} max={maturityDate || undefined} needsManual={scanGaps.includes("firstPayoutDate")} />}
+                <Field label="Maturity date" value={maturityDate} setValue={setMaturityDate} type="date" needsManual={scanGaps.includes("maturityDate")} />
               </div>
               {firstProjection && <CalculationPreview projection={firstProjection} rate={rate} amount={draft.principalPaise} />}
             </div>
@@ -938,9 +937,18 @@ function FormHeading({ title, description }: { title: string; description: strin
   return <div className="form-heading"><h2>{title}</h2><p>{description}</p></div>;
 }
 
-function Field({ label, value, setValue, ...props }: { label: string; value: string; setValue: (value: string) => void } & Omit<React.ComponentProps<typeof Input>, "value" | "onChange">) {
+function Field({ label, value, setValue, needsManual, ...props }: { label: string; value: string; setValue: (value: string) => void; needsManual?: boolean } & Omit<React.ComponentProps<typeof Input>, "value" | "onChange">) {
   const id = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-  return <div className="form-field"><Label htmlFor={id}>{label}</Label><Input id={id} value={value} onChange={(event) => setValue(event.target.value)} {...props} /></div>;
+  // Only while it is still empty: once answered it is no longer outstanding,
+  // whoever or whatever answered it.
+  const outstanding = Boolean(needsManual) && !value;
+  return (
+    <div className="form-field" data-manual={outstanding || undefined}>
+      <Label htmlFor={id}>{label}{outstanding && <span className="field-manual">Enter this</span>}</Label>
+      <Input id={id} value={value} onChange={(event) => setValue(event.target.value)} aria-describedby={outstanding ? `${id}-manual` : undefined} {...props} />
+      {outstanding && <p className="field-note" id={`${id}-manual`}>The documents did not give this — enter it from the paperwork.</p>}
+    </div>
+  );
 }
 
 /**
