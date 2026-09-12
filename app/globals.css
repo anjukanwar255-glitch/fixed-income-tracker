@@ -148,10 +148,12 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 
 .app-shell { background:#f3f6fa; display:flex; min-height:100dvh; }
 .desktop-sidebar { background:linear-gradient(180deg,#0d2945,#0b2239); transition:width .18s; color:#f4fbfb; display:flex; flex-direction:column; height:100vh; height:100lvh; inset:0 auto auto 0; overflow-y:auto; overscroll-behavior:contain; padding:26px 18px 22px; position:fixed; width:244px; z-index:30; }
-/* Tucked inside the bar's right edge. Fixed rather than nested, because the
-   bar scrolls and a scrolling box clips whatever reaches past its own edge. */
-.sidebar-toggle { align-items:center; background:#173a5c; border:1px solid #ffffff1f; border-radius:11px; color:#a9dcd6; cursor:pointer; display:flex; height:54px; justify-content:center; left:216px; padding:0; position:fixed; top:50%; transform:translateY(-50%); transition:left .18s,background .15s,color .15s; width:22px; z-index:31; }
-.sidebar-toggle:hover { background:#21557f; color:#eafffb; }
+/* A tab continuous with the bar rather than a button beside it: the side that
+   meets the bar carries no border and no rounding, so the two read as one
+   shape. Fixed rather than nested, because the bar scrolls and a scrolling box
+   clips whatever reaches past its own edge. */
+.sidebar-toggle { align-items:center; background:#0f2c49; border:1px solid #ffffff1c; border-radius:12px 0 0 12px; border-right:0; color:#a9dcd6; cursor:pointer; display:flex; height:56px; justify-content:center; left:222px; padding:0; position:fixed; top:50%; transform:translateY(-50%); transition:left .18s,color .15s; width:22px; z-index:31; }
+.sidebar-toggle:hover { color:#eafffb; }
 .sidebar-toggle svg { height:15px; transition:transform .18s; width:15px; }
 html[data-sidebar="collapsed"] .sidebar-toggle svg { transform:rotate(180deg); }
 .sidebar-brand { align-items:center; display:flex; gap:12px; padding:0 8px 28px; }
@@ -320,7 +322,7 @@ html[data-sidebar="collapsed"] .sidebar-toggle svg { transform:rotate(180deg); }
 .confirm-dialog kbd { background:#eef3f7; border:1px solid #d5dfe8; border-bottom-width:2px; border-radius:6px; color:#26405a; font-family:inherit; font-size:.76rem; font-weight:700; padding:2px 6px; white-space:nowrap; }
 
 @media (max-width: 900px) {
-  .desktop-sidebar { width:210px; }.app-main { margin-left:210px; width:calc(100% - 210px); }.sidebar-toggle { left:182px; }.app-content { padding:25px 20px 70px; }.metric-grid { grid-template-columns:repeat(2,1fr); }.detail-summary-grid { grid-template-columns:repeat(2,1fr); }.tds-metric-grid { grid-template-columns:repeat(2,1fr); }
+  .desktop-sidebar { width:210px; }.app-main { margin-left:210px; width:calc(100% - 210px); }.sidebar-toggle { left:188px; }.app-content { padding:25px 20px 70px; }.metric-grid { grid-template-columns:repeat(2,1fr); }.detail-summary-grid { grid-template-columns:repeat(2,1fr); }.tds-metric-grid { grid-template-columns:repeat(2,1fr); }
 }
 
 @media (max-width: 700px) {
@@ -371,7 +373,7 @@ html[data-sidebar="collapsed"] .sidebar-add span,
 html[data-sidebar="collapsed"] .sidebar-trust p { display:none; }
 html[data-sidebar="collapsed"] .desktop-sidebar nav button,
 html[data-sidebar="collapsed"] .sidebar-add { justify-content:center; padding-left:0; padding-right:0; }
-html[data-sidebar="collapsed"] .sidebar-toggle { left:44px; }
+html[data-sidebar="collapsed"] .sidebar-toggle { border-left:0; border-radius:0 12px 12px 0; border-right:1px solid #ffffff1c; left:72px; }
 html[data-sidebar="collapsed"] .sidebar-brand { justify-content:center; }
 html[data-sidebar="collapsed"] .sidebar-add { gap:0; }
 html[data-sidebar="collapsed"] .sidebar-add svg { margin:0; }
