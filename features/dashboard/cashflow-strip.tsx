@@ -8,7 +8,8 @@ import { formatMoney } from "@/core/finance/calculations";
 import { annualisedReturn, monthlyCashflow, portfolioFlows } from "@/core/finance/cashflow";
 import type { PortfolioInvestment } from "@/core/models/financial";
 
-const WINDOW_MONTHS = 6;
+/** April to March: the year the rest of the app is already reporting on. */
+const FY_MONTHS = 12;
 
 /**
  * What the portfolio pays out over the months ahead, and what it is earning.
@@ -22,16 +23,22 @@ const WINDOW_MONTHS = 6;
  * says what the money has actually earned once the dates it arrives on are
  * counted, across everything held.
  */
-export function CashflowStrip({ investments, onOpenInvestment }: {
+export function CashflowStrip({ investments, financialYear, onOpenInvestment }: {
   investments: PortfolioInvestment[];
+  financialYear: string;
   onOpenInvestment: (id: string) => void;
 }) {
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const [selected, setSelected] = useState<string | null>(null);
 
+  /*
+   * The year chosen in the header, not a rolling window from today. Every
+   * other screen reports on that year; a card beside them counting forward
+   * from today would be answering a different question with the same numbers.
+   */
   const months = useMemo(
-    () => monthlyCashflow(investments, today, WINDOW_MONTHS),
-    [investments, today],
+    () => monthlyCashflow(investments, `${financialYear.slice(0, 4)}-04-01`, FY_MONTHS),
+    [investments, financialYear],
   );
   const rate = useMemo(() => annualisedReturn(portfolioFlows(investments)), [investments]);
 
@@ -39,7 +46,12 @@ export function CashflowStrip({ investments, onOpenInvestment }: {
   // The tallest month sets the scale, so the bars compare with each other
   // rather than with a number nobody chose.
   const peak = months.reduce((high, month) => (month.expectedPaise > high ? month.expectedPaise : high), 0n);
-  const open = selected ?? months.find((month) => month.count > 0)?.month ?? months[0]?.month ?? null;
+  const inYear = selected && months.some((month) => month.month === selected) ? selected : null;
+  const open = inYear
+    ?? months.find((month) => month.month >= today.slice(0, 7) + "-01" && month.count > 0)?.month
+    ?? months.find((month) => month.count > 0)?.month
+    ?? months[0]?.month
+    ?? null;
 
   const openRows = useMemo(() => {
     if (!open) return [];
@@ -55,7 +67,7 @@ export function CashflowStrip({ investments, onOpenInvestment }: {
     <section className="cashflow-card" aria-label="Cash flow ahead">
       <header className="cashflow-head">
         <div>
-          <span className="cashflow-kicker"><CalendarRange aria-hidden="true" /> Next {WINDOW_MONTHS} months</span>
+          <span className="cashflow-kicker"><CalendarRange aria-hidden="true" /> FY {financialYear}</span>
           <strong>{formatMoney(total)}</strong>
         </div>
         {rate !== null && (
@@ -104,7 +116,7 @@ export function CashflowStrip({ investments, onOpenInvestment }: {
   );
 }
 
-/** Lakhs and thousands, because six of these have to sit side by side. */
+/** Lakhs and thousands, because twelve of these have to sit side by side. */
 function compact(paise: bigint) {
   const rupees = Number(paise) / 100;
   if (rupees >= 100_000) return `₹${(rupees / 100_000).toFixed(2)}L`;

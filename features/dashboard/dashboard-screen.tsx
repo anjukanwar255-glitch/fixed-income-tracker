@@ -119,7 +119,7 @@ export function DashboardScreen({
         ))}
       </section>
 
-      <CashflowStrip investments={investments} onOpenInvestment={onOpenInvestment} />
+      <CashflowStrip investments={investments} financialYear={financialYear} onOpenInvestment={onOpenInvestment} />
 
       <section className="content-section">
         <div className="section-heading">

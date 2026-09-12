@@ -1012,19 +1012,19 @@ async function syncInvestment(investment: PortfolioInvestment, extra: Record<str
     if (!response.ok || !result.investmentId) throw new Error(result.error ?? "Investment could not be saved");
     // Uploaded one at a time so a single rejected file cannot take the rest
     // with it; the investment is already saved either way.
-    let failed = 0;
+    const rejected: string[] = [];
     for (const attachment of files) {
       const upload = await uploadDocumentFile(attachment.file, {
         investmentId: result.investmentId,
         documentType: attachment.documentType,
         financialYear: investment.schedule[0]?.financialYear ?? "",
       });
-      if (!upload.ok) failed += 1;
+      if (upload.ok) continue;
+      const reason = await upload.json().then((body: { error?: string }) => body.error).catch(() => null);
+      rejected.push(`${attachment.file.name}: ${reason ?? `upload failed (${upload.status})`}`);
     }
-    if (failed) {
-      toast.warning(failed === files.length
-        ? "Investment saved, but the documents need to be uploaded again"
-        : `Investment saved. ${failed} of ${files.length} documents need to be uploaded again`);
+    if (rejected.length) {
+      toast.warning(`Investment saved. ${rejected.length} of ${files.length} documents were not stored — ${rejected.join("; ")}`, { duration: 12000 });
     }
     return { investmentId: result.investmentId, scheduleCount: result.scheduleCount ?? investment.schedule.length, warning: result.warning };
 }

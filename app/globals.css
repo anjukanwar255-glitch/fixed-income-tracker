@@ -354,7 +354,7 @@ html[data-sidebar="collapsed"] .sidebar-toggle svg { transform:rotate(180deg); }
 /* 2. A row that has to narrow wraps its figures onto a second line instead of
    dropping them. They are the only reason the row exists, and hiding them left
    a date beside a badge saying nothing about the money. */
-.cashflow-card { background:#fff; border:1px solid #e0e7ee; border-radius:20px; margin-bottom:20px; overflow:hidden; }
+.cashflow-card { background:#fff; border:1px solid #e0e7ee; border-radius:20px; margin:20px 0; overflow:hidden; }
 .cashflow-head { align-items:flex-start; border-bottom:1px solid #eef3f7; display:flex; flex-wrap:wrap; gap:14px; justify-content:space-between; padding:18px 20px; }
 .cashflow-kicker { align-items:center; color:#6b7f93; display:flex; font-size:.68rem; font-weight:800; gap:6px; letter-spacing:.07em; text-transform:uppercase; }
 .cashflow-kicker svg { height:14px; width:14px; }
@@ -363,7 +363,8 @@ html[data-sidebar="collapsed"] .sidebar-toggle svg { transform:rotate(180deg); }
 .cashflow-rate svg { height:17px; width:17px; }
 .cashflow-rate small { color:#4d7b76; display:block; font-size:.66rem; }
 .cashflow-rate b { font-size:.95rem; }
-.cashflow-months { display:grid; gap:8px; grid-template-columns:repeat(6,minmax(0,1fr)); padding:16px 20px 4px; }
+.cashflow-months { display:grid; gap:6px; grid-auto-columns:minmax(56px,1fr); grid-auto-flow:column; overflow-x:auto; padding:16px 20px 4px; scroll-snap-type:x proximity; }
+.cashflow-month { scroll-snap-align:start; }
 .cashflow-month { align-items:center; background:none; border:1px solid transparent; border-radius:14px; cursor:pointer; display:flex; flex-direction:column; gap:7px; padding:9px 4px; transition:background .15s,border-color .15s; }
 .cashflow-month:hover { background:#f4f8fb; }
 .cashflow-month[data-open] { background:#eefaf7; border-color:#bfe4de; }
